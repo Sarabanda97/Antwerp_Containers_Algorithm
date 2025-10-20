@@ -1,0 +1,122 @@
+64 76
+crane section
+2
+0 32 8 42 14 1 0 35 10
+1 52 8 62 14 1 0 55 10
+storage section
+36
+0 4 40
+1 7 40
+2 10 40
+3 17 40
+4 20 40
+5 23 40
+6 4 44
+7 7 44
+8 10 44
+9 17 44
+10 20 44
+11 23 44
+12 4 48
+13 7 48
+14 10 48
+15 17 48
+16 20 48
+17 23 48
+18 4 60
+19 7 60
+20 10 60
+21 17 60
+22 20 60
+23 23 60
+24 4 64
+25 7 64
+26 10 64
+27 17 64
+28 20 64
+29 23 64
+30 4 68
+31 7 68
+32 10 68
+33 17 68
+34 20 68
+35 23 68
+carrier section
+2
+0 1 3 62
+1 1 9 38
+container section
+27
+0 0
+1 27
+2 12
+3 21
+4 29
+5 15
+6 26
+7 34
+8 1
+9 20
+10 7
+11 5
+12 10
+13 13
+14 14
+15 2
+16 22
+17 24
+18 23
+19 17
+20 8
+21 35
+22 3
+23 33
+24 9
+25 4
+26 16
+demand section
+16  % 16 containers will appear during the day with all operations
+demand crane 0
+2 0 1    % 2 ships coming: ships 0 and 1
+ship 0
+8  % number of operations at the crane for this ship
+unload 0 27 33   % pick at discharge 0 container 27 and put it at storage area 33
+unload 0 28 16   % pick at discharge 0 container 28 and put it at storage area 16
+unload 0 29 3   % pick at discharge 0 container 29 and put it at storage area 3
+unload 0 30 35   % pick at discharge 0 container 30 and put it at storage area 35
+load 0 0   % bring container 0 to discharge 0
+load 0 3   % bring container 3 to discharge 0
+load 0 25   % bring container 25 to discharge 0
+load 0 14   % bring container 14 to discharge 0
+ship 1
+8  % number of operations at the crane for this ship
+unload 0 31 0   % pick at discharge 0 container 31 and put it at storage area 0
+unload 0 32 31   % pick at discharge 0 container 32 and put it at storage area 31
+unload 0 33 21   % pick at discharge 0 container 33 and put it at storage area 21
+unload 0 34 15   % pick at discharge 0 container 34 and put it at storage area 15
+unload 0 35 20   % pick at discharge 0 container 35 and put it at storage area 20
+unload 0 36 4   % pick at discharge 0 container 36 and put it at storage area 4
+unload 0 37 12   % pick at discharge 0 container 37 and put it at storage area 12
+load 0 21   % bring container 21 to discharge 0
+demand crane 1
+2 2 3    % 2 ships coming: ships 2 and 3
+ship 2
+6  % number of operations at the crane for this ship
+unload 0 38 15   % pick at discharge 0 container 38 and put it at storage area 15
+load 0 6   % bring container 6 to discharge 0
+load 0 22   % bring container 22 to discharge 0
+load 0 18   % bring container 18 to discharge 0
+load 0 4   % bring container 4 to discharge 0
+load 0 5   % bring container 5 to discharge 0
+ship 3
+10  % number of operations at the crane for this ship
+unload 0 39 32   % pick at discharge 0 container 39 and put it at storage area 32
+unload 0 40 31   % pick at discharge 0 container 40 and put it at storage area 31
+unload 0 41 6   % pick at discharge 0 container 41 and put it at storage area 6
+unload 0 42 19   % pick at discharge 0 container 42 and put it at storage area 19
+load 0 15   % bring container 15 to discharge 0
+load 0 8   % bring container 8 to discharge 0
+load 0 16   % bring container 16 to discharge 0
+load 0 11   % bring container 11 to discharge 0
+load 0 19   % bring container 19 to discharge 0
+load 0 9   % bring container 9 to discharge 0
