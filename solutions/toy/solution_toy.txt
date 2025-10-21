@@ -1,4 +1,39 @@
-0 0 face right
-1 0 move 0
-2 0 load
-3 0 unload
+carrier 0
+0 0 face down
+1 0 move 37
+38 0 face left
+39 0 move 8
+47 0 load
+48 0 face up
+49 0 move 43
+92 0 face right
+93 0 move 6
+99 0 unload
+100 0 face down
+101 0 move 43
+144 0 face left
+145 0 move 6
+151 0 load
+152 0 face up
+153 0 move 39
+192 0 face right
+193 0 move 6
+199 0 unload
+200 0 face down
+201 0 move 4
+205 0 load
+206 0 face down
+207 0 move 35
+242 0 face left
+243 0 move 6
+249 0 unload
+250 0 face up
+251 0 move 39
+290 0 face right
+291 0 move 9
+300 0 load
+301 0 face down
+302 0 move 39
+341 0 face left
+342 0 move 9
+351 0 unload
