@@ -1,0 +1,15 @@
+# bins e temporários
+*.exe
+/build/
+target/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+# outputs gerados
+/solutions/**
+
+# IDEs
+.vscode/
+.idea/

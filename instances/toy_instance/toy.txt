@@ -1,0 +1,33 @@
+30 75  % size of the map
+crane section
+1    % only one crane
+0 21 44 30 50 1 0 24 46 % id bottom_left_coord top_right_coord #discharge [discharge_id bottom_left_coord]
+storage section
+9       % 9 storage area
+0 6 67  % id bottom_left_coordinate
+1 9 67
+2 12 67 
+3 6 63
+4 9 63
+5 12 63
+6 6 59
+7 9 59
+8 12 59
+carrier section
+1    % only one carrier
+0 0 8 61  % id crane_assignment bottom_left_coord (always facing south)
+container section
+3    % 3 containers initially placed
+0 1  % container 0 placed at area 1
+1 4  % container 1 placed at area 4
+2 6  % container 2 placed at area 6
+demand section
+2 % 2 containers will appear during the day with all operations
+demand crane 0
+1 0   % 1 ship coming: ship 0
+ship 0
+4 % number of operations at the crane
+unload 0 3 0  % pick at discharge 0 container 3 and put it at area 0
+unload 0 4 3  % pick at discharge 0 container 4 and put it at area 3
+load 0 2 % bring container 2 to discharge 0
+load 0 1 % bring container 1 to discharge 0

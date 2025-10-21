@@ -1,0 +1,10 @@
+[package]
+name = "container-terminal-sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+
+[dev-dependencies]
+# Add any development dependencies here
