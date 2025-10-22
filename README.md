@@ -120,13 +120,6 @@ This means the checker was called with positional arguments instead of flag-styl
 
 The provided PowerShell wrapper calls the checker correctly using flags and absolute paths. Use it or call the checker manually with `--instance` and `--solution`.
 
-Troubleshooting
----------------
-- Permission: Windows may block downloaded executables. The script attempts `Unblock-File`. If execution still fails, right-click the exe → Properties → unblock, or run `Unblock-File .\checker_windows.exe`.
-- Paths: Always prefer absolute paths. `run_checker.ps1` resolves absolute paths for you.
-- Working directory: The checker expects file paths passed with flags; don't pass positional args.
-- If `cargo run` writes output into `..\solutions\...` ensure `solutions/` dir exists or the program will create it (main.rs creates parent dirs).
-
 Developer notes & extension points
 ----------------------------------
 - parser.rs: robust but simple; can be extended to validate semantic constraints (unique ids, coordinates inside map, etc).
@@ -141,23 +134,3 @@ Example files
 - Checker wrapper: `scripts/run_checker.ps1`
 
 License & contacts
-------------------
-- No explicit license included. Add a LICENSE file if needed.
-- For questions: open an issue in your local workflow or modify the code and run tests.
-
-Quick checklist to run everything (1,2,3)
------------------------------------------
-1. Build and run simulator:
-   - cd container-terminal-sim
-   - cargo run --release
-2. Ensure `checker_windows.exe` is in the `checker` folder and unblocked.
-3. Validate solution:
-   - From repo root PowerShell:
-     - Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-     - .\scripts\run_checker.ps1 -InstancePath ".\instances\toy_instance\toy.txt" -SolutionPath ".\solutions\toy\solution_toy.txt"
-
-If you want, I can:
-- add CLI args to `main.rs` to pass instance/solution paths,
-- improve `parser.rs` validation,
-- implement a better planner, or
-- produce a small CONTRIBUTING.md.
