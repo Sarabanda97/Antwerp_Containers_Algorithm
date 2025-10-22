@@ -140,4 +140,3 @@ Example files
 - Reference solution: `solutions/toy/solution_toy_reference.txt`
 - Checker wrappers: `scripts/run_checker.ps1`, `scripts/open_checker_gui.ps1`
 
-License & contacts
