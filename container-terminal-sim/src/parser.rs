@@ -41,12 +41,15 @@ pub fn parse_instance(path:&str) -> Result<Instance> {
     for _ in 0..n_cranes {
         let row = next(&mut i);
         let nums:Vec<i32> = row.split_whitespace().map(|t| t.parse().unwrap()).collect();
-        // id x1 y1 x2 y2 nd d1x d1y ...
+        // id x1 y1 x2 y2 nd [dispatch_id x y] ...
         let id=nums[0];
         let rect=(nums[1],nums[2],nums[3],nums[4]);
         let nd=nums[5] as usize;
         let mut dispatches=Vec::new();
-        for k in 0..nd { dispatches.push((nums[6+2*k], nums[6+2*k+1])); }
+        // Each dispatch is: dispatch_id x y (3 values), so skip the id
+        for k in 0..nd { 
+            dispatches.push((nums[6+3*k+1], nums[6+3*k+2])); 
+        }
         cranes.push(Crane{ id, rect, dispatch_positions:dispatches });
     }
 

@@ -1,6 +1,7 @@
 ﻿mod model;
 mod parser;
 mod planner;
+mod planner_simple;
 mod writer;
 
 use anyhow::Result;
@@ -28,8 +29,8 @@ fn main() -> Result<()> {
         out_path = r"..\solutions\toy\solution_toy_first.txt";
     }
 
-    // planeador actual (usa plan_sequential)
-    let plan_lines = planner::plan_sequential(&inst);
+    // planeador simple (step by step)
+    let plan_lines = planner_simple::plan_simple(&inst);
 
     // Group plan_lines by carrier and emit "carrier <id>" blocks expected by the checker
     let mut final_lines: Vec<String> = Vec::new();
