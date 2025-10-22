@@ -53,22 +53,21 @@ Parser behavior
 
 Solution / plan file format
 ---------------------------
-Solution files are plain text where each line is an action in this format:
+The checker expects blocks per carrier. This project writes solution files like:
 
-<time> <carrier_id> <action> [params...]
-
-Examples:
-- `0 0 face right`
-- `1 0 move 0`
-- `2 0 load`
-- `3 0 unload`
+- Header line per carrier: `carrier <id>`
+- Then action lines with absolute time and action (no carrier id on action lines):
+  - `0 face right`
+  - `1 move 3`
+  - `4 load`
+  - `5 unload`
 
 Time semantics (current implementation)
-- `face` consumes 1 time unit.
-- `move k` consumes |k| time units.
-- `load` and `unload` each consume 1 time unit.
+- `face` consumes 1 time unit
+- `move k` consumes |k| time units (k may be negative to move backward)
+- `load` and `unload` each consume 1 time unit
 
-The planner in `src/planner.rs` creates sequences following these rules (simple, sequential logic).
+The toy solution is currently produced by the hardcoded planner in `src/planner_simple.rs` and matches the included reference.
 
 How to run the simulator (build & run)
 --------------------------------------
@@ -110,6 +109,12 @@ Example (from repo root):
   - Then run:
     - .\scripts\run_checker.ps1 -InstancePath ".\instances\toy_instance\toy.txt" -SolutionPath ".\solutions\toy\solution_toy.txt"
 
+Open the GUI quickly (VS Code Task)
+-----------------------------------
+- Use the task "Open Checker GUI (Toy)" via Command Palette → Run Task.
+- Or run the helper script directly from the repo root:
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\open_checker_gui.ps1 -InstancePath ".\instances\toy_instance\toy.txt" -SolutionPath ".\solutions\toy\solution_toy.txt"`
+
 Common checker error and cause
 ------------------------------
 If you see:
@@ -122,15 +127,17 @@ The provided PowerShell wrapper calls the checker correctly using flags and abso
 
 Developer notes & extension points
 ----------------------------------
-- parser.rs: robust but simple; can be extended to validate semantic constraints (unique ids, coordinates inside map, etc).
-- planner.rs: current `plan_sequential` uses a dummy sequential strategy. Replace with an optimized planner that considers multiple carriers, travel time, and concurrency.
-- writer.rs: helpers to write outputs and solutions; can be reused by new planners.
-- model/mod.rs: central data types (Crane, Storage, Carrier, Demand, Instance). Add fields (e.g., orientation, capacity) as needed.
+- `parser.rs`: robust but simple; can be extended to validate semantic constraints (unique ids, coordinates inside map, etc.)
+- `planner_simple.rs`: contains a hardcoded toy solution that passes the checker.
+- `planner.rs`: contains exploratory sequential logic; not used for the validated toy plan.
+- `writer.rs`: helpers to write outputs/solutions in the required format.
+- `model/mod.rs`: core data types; extend as needed (e.g., orientation, capacity).
 
 Example files
 -------------
 - Instance example: `instances/toy_instance/toy.txt`
-- Example solution created by current main: `solutions/toy/solution_toy.txt` (already included in repo)
-- Checker wrapper: `scripts/run_checker.ps1`
+- Produced solution: `solutions/toy/solution_toy.txt`
+- Reference solution: `solutions/toy/solution_toy_reference.txt`
+- Checker wrappers: `scripts/run_checker.ps1`, `scripts/open_checker_gui.ps1`
 
 License & contacts
