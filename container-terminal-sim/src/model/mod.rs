@@ -68,6 +68,14 @@ pub enum Demand {
     Load   { dispatch_id: Id, container_id: Id },
 }
 
+#[derive(Debug, Clone)]
+pub struct ShipBlock {
+    pub ship_id: Id,
+    pub crane_id: Option<Id>,      // preenchido se lido após "demand crane X"
+    pub operations: Vec<Demand>,   // as operações deste navio, por ordem
+}
+
+
 /* ===================== Instância ===================== */
 
 #[derive(Debug, Clone)]
@@ -78,7 +86,7 @@ pub struct Instance {
 
     // recursos fixos
     pub cranes: Vec<Crane>,
-    pub dispatches: Vec[Dispatch],
+    pub dispatches: Vec<Dispatch>,
     pub storages: Vec<Storage>,
     pub carriers: Vec<Carrier>,
 
@@ -88,6 +96,11 @@ pub struct Instance {
 
     // ordens operacionais
     pub demands: Vec<Demand>,
+
+        // meta de "demand section"
+    pub total_new_containers: Option<i32>, // ex.: "2" na linha "demand section"
+    pub ships: Vec<ShipBlock>,             // grupos "ship N { ops... }"
+
 }
 
 /* ===================== Debug amigável ===================== */
