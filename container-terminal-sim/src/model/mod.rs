@@ -5,10 +5,10 @@ pub type Coord = i32;
 
 /* ===================== Geometria ===================== */
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point { pub x: Coord, pub y: Coord }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Retângulo em coordenadas de grelha.
 /// Convenção: inclusivo em ambos os extremos (x1..=x2, y1..=y2).
 pub struct Rect { pub x1: Coord, pub y1: Coord, pub x2: Coord, pub y2: Coord }
@@ -23,7 +23,7 @@ impl Rect {
 
 /* ===================== Direção / Dimensão ===================== */
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction { Up, Right, Down, Left }
 
 /* ===================== Terminal ===================== */

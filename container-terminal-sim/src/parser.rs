@@ -201,6 +201,40 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             carrying: None,
             size: (4, 8),
         });
+
+        // depois de definir `bl`
+let carrier_rect = Rect {
+    x1: bl.x,
+    y1: bl.y,
+    x2: bl.x + 3, // 4x8, mas só precisamos garantir que o BL não sai já do mapa;
+    y2: bl.y + 7,
+};
+
+if !rect_within(&carrier_rect, &map_rect) {
+    return Err(anyhow!(
+        "Carrier {} (pos inicial) fora do mapa: rect=({},{},{},{})",
+        v[0], carrier_rect.x1, carrier_rect.y1, carrier_rect.x2, carrier_rect.y2
+    ));
+}
+
+// se quiseres ser mais hardcore:
+for s in &storages {
+    if rect_intersects(&carrier_rect, &s.rect) {
+        return Err(anyhow!(
+            "Carrier {} começa a intersectar storage {}",
+            v[0], s.id
+        ));
+    }
+}
+for d in &dispatches {
+    if rect_intersects(&carrier_rect, &d.rect) {
+        return Err(anyhow!(
+            "Carrier {} começa a intersectar dispatch {}",
+            v[0], d.id
+        ));
+    }
+}
+        
     }
 
     /* ========== 5) CONTAINERS INICIAIS ========== */
