@@ -11,6 +11,7 @@ fn map_rect(inst: &Instance) -> Rect {
     Rect { x1: 0, y1: 0, x2: inst.width, y2: inst.height }
 }
 
+
 fn dispatch_rect(inst: &Instance, did: Id) -> Rect {
     inst.dispatches
         .iter()

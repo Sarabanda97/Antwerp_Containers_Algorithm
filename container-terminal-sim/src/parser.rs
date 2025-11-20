@@ -64,7 +64,8 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     if width <= 0 || height <= 0 {
         return Err(anyhow!("Dimensões do mapa inválidas: {}x{}", width, height));
     }
-    let map_rect = Rect { x1: 0, y1: 0, x2: width - 1, y2: height - 1 };
+    // mapa 0..=width, 0..=height (inclusivo)
+    let map_rect = Rect { x1: 0, y1: 0, x2: width, y2: height };
 
     /* ========== 2) CRANES + DISPATCHES ========== */
     let n_cranes_line = next_number_line(&lines, &mut i)
@@ -186,55 +187,22 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             .collect::<Result<_, _>>()?;
         if v.len() < 4 { return Err(anyhow!("Linha de carrier inválida: {}", row)); }
 
+        let id = v[0];
         let assigned_crane = v[1];
         if !crane_id_exists.contains(&assigned_crane) {
             return Err(anyhow!("Carrier referencia crane inexistente: {}", assigned_crane));
         }
 
         let bl = Point { x: v[2], y: v[3] };
-        // opcional: poderíamos checar se o 4×8 inicial cabe no mapa.
+
         carriers.push(Carrier {
-            id: v[0],
+            id,
             assigned_crane,
             bl,
             dir: Direction::Down,
             carrying: None,
             size: (4, 8),
         });
-
-        // depois de definir `bl`
-let carrier_rect = Rect {
-    x1: bl.x,
-    y1: bl.y,
-    x2: bl.x + 3, // 4x8, mas só precisamos garantir que o BL não sai já do mapa;
-    y2: bl.y + 7,
-};
-
-if !rect_within(&carrier_rect, &map_rect) {
-    return Err(anyhow!(
-        "Carrier {} (pos inicial) fora do mapa: rect=({},{},{},{})",
-        v[0], carrier_rect.x1, carrier_rect.y1, carrier_rect.x2, carrier_rect.y2
-    ));
-}
-
-// se quiseres ser mais hardcore:
-for s in &storages {
-    if rect_intersects(&carrier_rect, &s.rect) {
-        return Err(anyhow!(
-            "Carrier {} começa a intersectar storage {}",
-            v[0], s.id
-        ));
-    }
-}
-for d in &dispatches {
-    if rect_intersects(&carrier_rect, &d.rect) {
-        return Err(anyhow!(
-            "Carrier {} começa a intersectar dispatch {}",
-            v[0], d.id
-        ));
-    }
-}
-        
     }
 
     /* ========== 5) CONTAINERS INICIAIS ========== */
@@ -282,13 +250,11 @@ for d in &dispatches {
         match toks[0].to_lowercase().as_str() {
             // "demand section" (seguido por uma linha numérica com o total)
             "demand" if toks.len() >= 2 && toks[1].eq_ignore_ascii_case("section") => {
-                // ler próximo número (pode estar na mesma ou próxima linha numérica)
                 let saved_i = i;
                 if let Some(nline) = next_number_line(&lines, &mut i) {
                     let n: i32 = nline.split_whitespace().next().unwrap().parse()?;
                     total_new_containers = Some(n);
                 } else {
-                    // sem número explícito → mantém None
                     i = saved_i;
                 }
             }
@@ -315,7 +281,7 @@ for d in &dispatches {
                                 nships, ship_ids.len(), nline
                             ));
                         }
-                        // Não criamos blocks ainda; os blocks virão com "ship K".
+                        // não precisamos de usar ship_ids por agora
                     }
                 } else {
                     i = saved_i;
@@ -327,7 +293,6 @@ for d in &dispatches {
                 let ship_id: i32 = toks[1].parse()?;
                 let mut block = ShipBlock { ship_id, crane_id: current_crane, operations: vec![] };
 
-                // nº de operações
                 let mline = next_number_line(&lines, &mut i)
                     .context(format!("Falta número de operações para ship {}", ship_id))?;
                 let m_ops: usize = mline.split_whitespace().next().unwrap().parse()?;
@@ -378,7 +343,6 @@ for d in &dispatches {
 
             // fallback: permitir ficheiros simples com linhas de op soltas
             "unload" | "load" => {
-                // Reprocessa a linha como no modo simples
                 let op = toks[0].to_lowercase();
                 if op == "unload" {
                     if toks.len() < 4 { return Err(anyhow!("Linha unload inválida: {}", l)); }
