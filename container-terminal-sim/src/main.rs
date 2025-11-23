@@ -9,6 +9,9 @@ fn main() -> anyhow::Result<()> {
     let inst_path = "../instances/toy_instance/toy.txt";
     let inst = parser::parse_instance(inst_path)?;
 
+    // Debug: print instance summary
+    println!("{}", inst);
+
     let plan = planner::plan_sequential(&inst)?;
     let out_path = Path::new("../solutions/toy/solution_DEMO_toy.txt");
 
