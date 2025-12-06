@@ -8,8 +8,7 @@ pub fn write_solution(path: &str, cmds_by_carrier: &[(i32, Vec<Command>)]) -> st
         writeln!(f, "carrier {}", cid)?;
         for cmd in cmds {
             match cmd {
-                Command::Move { t, k } =>
-                    writeln!(f, "{} move {}", t, k)?,
+                Command::Move { t, k } => writeln!(f, "{} move {}", t, k)?,
                 Command::Face { t, dir } =>
                     writeln!(f, "{} face {:?}", t, dir)?,
                 Command::Load { t } =>

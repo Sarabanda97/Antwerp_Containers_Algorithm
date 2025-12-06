@@ -6,7 +6,6 @@ pub fn enrich_instance_geometry(inst: &mut Instance) {
     compute_dispatch_staging(inst);
 }
 
-// yard_rect: agora podemos até nem usar no toy, mas fica já:
 pub fn compute_yard_rect(inst: &mut Instance) {
     if inst.storages.is_empty() {
         inst.yard_rect = None;

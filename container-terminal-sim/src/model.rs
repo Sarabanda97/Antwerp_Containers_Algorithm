@@ -1,12 +1,12 @@
 pub type Id = i32;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Point { pub x: i32, pub y: i32 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Rect { pub x1: i32, pub y1: i32, pub x2: i32, pub y2: i32 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction { Up, Down, Left, Right }
 
 pub struct Crane {
@@ -39,16 +39,12 @@ pub struct Carrier {
     pub size: (i32, i32),    // (4,8)
 }
 
-pub enum Demand {
-    Unload { dispatch_id: Id, container_id: Id, storage_id: Id },
-    Load   { dispatch_id: Id, container_id: Id },
-}
-
 #[derive(Clone)]
 pub enum Demand {
     Unload { dispatch_id: Id, container_id: Id, storage_id: Id },
     Load   { dispatch_id: Id, container_id: Id },
 }
+
 
 pub struct ShipBlock {
     pub ship_id: Id,

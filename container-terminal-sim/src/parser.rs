@@ -4,11 +4,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use crate::model::*;
 
-/* =========================================
+/* ===========================
  * Auxiliares
- * =================================================== */
-
-
+ * =========================== */
 
 fn clean(s: &str) -> Option<String> {
     let s = s.split('%').next().unwrap_or("").trim();
@@ -39,9 +37,9 @@ fn rect_intersects(a: &Rect, b: &Rect) -> bool {
     !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
 }
 
-/* ===================================================
+/* ===========================
  * Parser principal
- * =================================================== */
+ * =========================== */
 
 pub fn parse_instance(path: &str) -> Result<Instance> {
     let file = File::open(path)
@@ -66,10 +64,9 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     if width <= 0 || height <= 0 {
         return Err(anyhow!("Dimensões do mapa inválidas: {}x{}", width, height));
     }
-    // mapa 0..=width, 0..=height (inclusivo)
     let map_rect = Rect { x1: 0, y1: 0, x2: width, y2: height };
 
-    /* CRANES + DISPATCHES */
+    /* ========== 2) CRANES + DISPATCHES ========== */
     let n_cranes_line = next_number_line(&lines, &mut i)
         .context("Falta número de cranes")?;
     let n_cranes: i32 = n_cranes_line.split_whitespace().next().unwrap().parse()?;
@@ -99,7 +96,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
 
         let nd = nums[5] as usize;
         let mut crane_dispatch_ids = Vec::new();
-        // guarda rects para checar overlap entre si
         let mut this_dispatch_rects: Vec<Rect> = Vec::new();
 
         for k in 0..nd {
@@ -116,19 +112,19 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             }
             let rect_d = Rect { x1: x, y1: y, x2: x + 3, y2: y + 1 };
 
-            // valida: dispatch dentro do mapa
+            // dispatch dentro do mapa
             if !rect_within(&rect_d, &map_rect) {
                 return Err(anyhow!("Dispatch {} fora do mapa: rect=({},{},{},{})",
                     did, rect_d.x1, rect_d.y1, rect_d.x2, rect_d.y2));
             }
-            // valida: dispatch dentro do rect da grua
+            // dispatch dentro da crane section
             if !rect_within(&rect_d, &rect) {
                 return Err(anyhow!(
                     "Dispatch {} não está contido no rect da grua {}",
                     did, id
                 ));
             }
-            // valida: sem overlap entre dispatches da MESMA grua
+            // sem overlap com outras dispatches da mesma grua
             for prev in &this_dispatch_rects {
                 if rect_intersects(prev, &rect_d) {
                     return Err(anyhow!(
@@ -139,36 +135,51 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             }
             this_dispatch_rects.push(rect_d);
 
-            dispatches.push(Dispatch { id: did, crane_id: id, rect: rect_d, staging_bl: None, staging_dir: None });
+            dispatches.push(Dispatch {
+                id: did,
+                crane_id: id,
+                rect: rect_d,
+                staging_bl: None,
+                staging_dir: None,
+            });
             crane_dispatch_ids.push(did);
         }
 
         cranes.push(Crane { id, rect, dispatch_ids: crane_dispatch_ids });
     }
 
-    /*  3) STORAGES */
+    /* ========== 3) STORAGES ========== */
+    let n_stor_line = next_number_line(&lines, &mut i)
+        .context("Falta número de storages")?;
+    let n_stor: i32 = n_stor_line.split_whitespace().next().unwrap().parse()?;
+
+    let mut storages: Vec<Storage> = Vec::new();
+    let mut storage_ids_seen = HashSet::new();
+
     for _ in 0..n_stor {
-    let row = next(&mut i).context("Falta linha de storage")?;
-    let v: Vec<i32> = row.split_whitespace()
-        .map(|t| t.parse::<i32>())
-        .collect::<Result<_, _>>()?;
-    if v.len() < 3 { return Err(anyhow!("Linha de storage inválida: {}", row)); }
+        let row = next(&mut i).context("Falta linha de storage")?;
+        let v: Vec<i32> = row.split_whitespace()
+            .map(|t| t.parse::<i32>())
+            .collect::<Result<_, _>>()?;
+        if v.len() < 3 { return Err(anyhow!("Linha de storage inválida: {}", row)); }
 
-    let id = v[0];
-    if !storage_ids_seen.insert(id) {
-        return Err(anyhow!("Storage id duplicado: {}", id));
-    }
-    let bl = Point { x: v[1], y: v[2] };
-    let rect = Rect { x1: bl.x, y1: bl.y, x2: bl.x + 1, y2: bl.y + 3 }; // 2×4
-    if !rect_within(&rect, &map_rect) {
-        return Err(anyhow!("Storage {} fora do mapa: rect=({},{},{},{})",
-            id, rect.x1, rect.y1, rect.x2, rect.y2));
-    }
+        let id = v[0];
+        if !storage_ids_seen.insert(id) {
+            return Err(anyhow!("Storage id duplicado: {}", id));
+        }
+        let bl = Point { x: v[1], y: v[2] };
+        let rect = Rect { x1: bl.x, y1: bl.y, x2: bl.x + 1, y2: bl.y + 3 }; // 2×4
+        if !rect_within(&rect, &map_rect) {
+            return Err(anyhow!("Storage {} fora do mapa: rect=({},{},{},{})",
+                id, rect.x1, rect.y1, rect.x2, rect.y2));
+        }
 
-    storages.push(Storage { id, rect, staging_bl: None, staging_dir: None });
-}
-
-        
+        storages.push(Storage {
+            id,
+            rect,
+            staging_bl: None,
+            staging_dir: None,
+        });
     }
 
     /* ========== 4) CARRIERS ========== */
@@ -231,23 +242,23 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     }
 
     for (k, st) in storage_stacks.iter().enumerate() {
-        if st.len() > 2 { return Err(anyhow!("Storage {} tem mais de 2 contentores", k)); }
+        if st.len() > 2 {
+            return Err(anyhow!("Storage {} tem mais de 2 contentores", k));
+        }
     }
 
-    /* ========== 6) DEMAND SECTION (estruturado) ========== */
+    /* ========== 6) DEMAND SECTION ========== */
     let mut demands: Vec<Demand> = Vec::new();
     let mut ships: Vec<ShipBlock> = Vec::new();
     let mut total_new_containers: Option<i32> = None;
     let mut current_crane: Option<i32> = None;
 
-    // Vamos varrer o resto das linhas “como gramática”.
     while i < lines.len() {
         let l = lines[i].clone(); i += 1;
         let toks: Vec<&str> = l.split_whitespace().collect();
         if toks.is_empty() { continue; }
 
         match toks[0].to_lowercase().as_str() {
-            // "demand section" (seguido por uma linha numérica com o total)
             "demand" if toks.len() >= 2 && toks[1].eq_ignore_ascii_case("section") => {
                 let saved_i = i;
                 if let Some(nline) = next_number_line(&lines, &mut i) {
@@ -258,7 +269,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                 }
             }
 
-            // "demand crane X"
             "demand" if toks.len() >= 3 && toks[1].eq_ignore_ascii_case("crane") => {
                 let cid: i32 = toks[2].parse()?;
                 if !crane_id_exists.contains(&cid) {
@@ -266,7 +276,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                 }
                 current_crane = Some(cid);
 
-                // linha seguinte pode ser "N ship_ids..." (ex. "1 0")
                 let saved_i = i;
                 if let Some(nline) = next_number_line(&lines, &mut i) {
                     let mut it = nline.split_whitespace();
@@ -280,17 +289,20 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                                 nships, ship_ids.len(), nline
                             ));
                         }
-                        // não precisamos de usar ship_ids por agora
+                        // ship_ids não usados por agora
                     }
                 } else {
                     i = saved_i;
                 }
             }
 
-            // "ship K" seguido por "M" e depois M operações
             "ship" if toks.len() >= 2 => {
                 let ship_id: i32 = toks[1].parse()?;
-                let mut block = ShipBlock { ship_id, crane_id: current_crane, operations: vec![] };
+                let mut block = ShipBlock {
+                    ship_id,
+                    crane_id: current_crane,
+                    operations: vec![],
+                };
 
                 let mline = next_number_line(&lines, &mut i)
                     .context(format!("Falta número de operações para ship {}", ship_id))?;
@@ -299,20 +311,26 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                 for _ in 0..m_ops {
                     let op_line = next(&mut i).context("Falta linha de operação em ship")?;
                     let tk: Vec<&str> = op_line.split_whitespace().collect();
-                    if tk.is_empty() { return Err(anyhow!("Linha de operação vazia: {}", op_line)); }
+                    if tk.is_empty() {
+                        return Err(anyhow!("Linha de operação vazia: {}", op_line));
+                    }
 
                     match tk[0].to_lowercase().as_str() {
                         "unload" => {
-                            if tk.len() < 4 { return Err(anyhow!("Linha unload inválida: {}", op_line)); }
+                            if tk.len() < 4 {
+                                return Err(anyhow!("Linha unload inválida: {}", op_line));
+                            }
                             let dispatch_id: i32 = tk[1].parse()?;
                             let container_id: i32 = tk[2].parse()?;
                             let storage_id: i32 = tk[3].parse()?;
 
                             if !dispatches.iter().any(|d| d.id == dispatch_id) {
-                                return Err(anyhow!("Dispatch id {} não existe ({})", dispatch_id, op_line));
+                                return Err(anyhow!("Dispatch id {} não existe ({})",
+                                    dispatch_id, op_line));
                             }
                             if !storage_index_by_id.contains_key(&storage_id) {
-                                return Err(anyhow!("Storage id {} não existe ({})", storage_id, op_line));
+                                return Err(anyhow!("Storage id {} não existe ({})",
+                                    storage_id, op_line));
                             }
 
                             let d = Demand::Unload { dispatch_id, container_id, storage_id };
@@ -320,12 +338,15 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                             block.operations.push(d);
                         }
                         "load" => {
-                            if tk.len() < 3 { return Err(anyhow!("Linha load inválida: {}", op_line)); }
+                            if tk.len() < 3 {
+                                return Err(anyhow!("Linha load inválida: {}", op_line));
+                            }
                             let dispatch_id: i32 = tk[1].parse()?;
                             let container_id: i32 = tk[2].parse()?;
 
                             if !dispatches.iter().any(|d| d.id == dispatch_id) {
-                                return Err(anyhow!("Dispatch id {} não existe ({})", dispatch_id, op_line));
+                                return Err(anyhow!("Dispatch id {} não existe ({})",
+                                    dispatch_id, op_line));
                             }
 
                             let d = Demand::Load { dispatch_id, container_id };
@@ -333,34 +354,41 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                             block.operations.push(d);
                         }
                         other => {
-                            return Err(anyhow!("Operação desconhecida '{}' na linha '{}'", other, op_line));
+                            return Err(anyhow!("Operação desconhecida '{}' na linha '{}'",
+                                other, op_line));
                         }
                     }
                 }
                 ships.push(block);
             }
 
-            // fallback: permitir ficheiros simples com linhas de op soltas
             "unload" | "load" => {
                 let op = toks[0].to_lowercase();
                 if op == "unload" {
-                    if toks.len() < 4 { return Err(anyhow!("Linha unload inválida: {}", l)); }
+                    if toks.len() < 4 {
+                        return Err(anyhow!("Linha unload inválida: {}", l));
+                    }
                     let dispatch_id: i32 = toks[1].parse()?;
                     let container_id: i32 = toks[2].parse()?;
                     let storage_id: i32 = toks[3].parse()?;
                     if !dispatches.iter().any(|d| d.id == dispatch_id) {
-                        return Err(anyhow!("Dispatch id {} não existe (linha: {})", dispatch_id, l));
+                        return Err(anyhow!("Dispatch id {} não existe (linha: {})",
+                            dispatch_id, l));
                     }
                     if !storage_index_by_id.contains_key(&storage_id) {
-                        return Err(anyhow!("Storage id {} não existe (linha: {})", storage_id, l));
+                        return Err(anyhow!("Storage id {} não existe (linha: {})",
+                            storage_id, l));
                     }
                     demands.push(Demand::Unload { dispatch_id, container_id, storage_id });
                 } else {
-                    if toks.len() < 3 { return Err(anyhow!("Linha load inválida: {}", l)); }
+                    if toks.len() < 3 {
+                        return Err(anyhow!("Linha load inválida: {}", l));
+                    }
                     let dispatch_id: i32 = toks[1].parse()?;
                     let container_id: i32 = toks[2].parse()?;
                     if !dispatches.iter().any(|d| d.id == dispatch_id) {
-                        return Err(anyhow!("Dispatch id {} não existe (linha: {})", dispatch_id, l));
+                        return Err(anyhow!("Dispatch id {} não existe (linha: {})",
+                            dispatch_id, l));
                     }
                     demands.push(Demand::Load { dispatch_id, container_id });
                 }
@@ -370,23 +398,18 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         }
     }
 
-    
-
-
     /* ========== 7) Construir Instance ========== */
-  Ok(Instance {
-    width,
-    height,
-    cranes,
-    dispatches,
-    storages,
-    carriers,
-    storage_stacks,
-    demands,
-    total_new_containers,
-    ships,
-    yard_rect: None,
-})
-
+    Ok(Instance {
+        width,
+        height,
+        cranes,
+        dispatches,
+        storages,
+        carriers,
+        storage_stacks,
+        demands,
+        total_new_containers,
+        ships,
+        yard_rect: None,
+    })
 }
-
