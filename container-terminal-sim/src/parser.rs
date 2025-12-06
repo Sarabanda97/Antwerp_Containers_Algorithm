@@ -4,9 +4,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use crate::model::*;
 
-/* ===================================================
+/* =========================================
  * Auxiliares
  * =================================================== */
+
+
 
 fn clean(s: &str) -> Option<String> {
     let s = s.split('%').next().unwrap_or("").trim();
@@ -51,7 +53,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         .collect();
 
     let mut i = 0usize;
-    let mut next = |i: &mut usize| -> Option<String> {
+    let next = |i: &mut usize| -> Option<String> {
         if *i < lines.len() { let v = lines[*i].clone(); *i += 1; Some(v) } else { None }
     };
 
@@ -67,7 +69,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     // mapa 0..=width, 0..=height (inclusivo)
     let map_rect = Rect { x1: 0, y1: 0, x2: width, y2: height };
 
-    /* ========== 2) CRANES + DISPATCHES ========== */
+    /* CRANES + DISPATCHES */
     let n_cranes_line = next_number_line(&lines, &mut i)
         .context("Falta número de cranes")?;
     let n_cranes: i32 = n_cranes_line.split_whitespace().next().unwrap().parse()?;
@@ -137,39 +139,36 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             }
             this_dispatch_rects.push(rect_d);
 
-            dispatches.push(Dispatch { id: did, crane_id: id, rect: rect_d });
+            dispatches.push(Dispatch { id: did, crane_id: id, rect: rect_d, staging_bl: None, staging_dir: None });
             crane_dispatch_ids.push(did);
         }
 
         cranes.push(Crane { id, rect, dispatch_ids: crane_dispatch_ids });
     }
 
-    /* ========== 3) STORAGES ========== */
-    let n_stor_line = next_number_line(&lines, &mut i)
-        .context("Falta número de storages")?;
-    let n_stor: i32 = n_stor_line.split_whitespace().next().unwrap().parse()?;
-
-    let mut storages: Vec<Storage> = Vec::new();
-    let mut storage_ids_seen = HashSet::new();
-
+    /*  3) STORAGES */
     for _ in 0..n_stor {
-        let row = next(&mut i).context("Falta linha de storage")?;
-        let v: Vec<i32> = row.split_whitespace()
-            .map(|t| t.parse::<i32>())
-            .collect::<Result<_, _>>()?;
-        if v.len() < 3 { return Err(anyhow!("Linha de storage inválida: {}", row)); }
+    let row = next(&mut i).context("Falta linha de storage")?;
+    let v: Vec<i32> = row.split_whitespace()
+        .map(|t| t.parse::<i32>())
+        .collect::<Result<_, _>>()?;
+    if v.len() < 3 { return Err(anyhow!("Linha de storage inválida: {}", row)); }
 
-        let id = v[0];
-        if !storage_ids_seen.insert(id) {
-            return Err(anyhow!("Storage id duplicado: {}", id));
-        }
-        let bl = Point { x: v[1], y: v[2] };
-        let rect = Rect { x1: bl.x, y1: bl.y, x2: bl.x + 1, y2: bl.y + 3 }; // 2×4
-        if !rect_within(&rect, &map_rect) {
-            return Err(anyhow!("Storage {} fora do mapa: rect=({},{},{},{})",
-                id, rect.x1, rect.y1, rect.x2, rect.y2));
-        }
-        storages.push(Storage { id, rect });
+    let id = v[0];
+    if !storage_ids_seen.insert(id) {
+        return Err(anyhow!("Storage id duplicado: {}", id));
+    }
+    let bl = Point { x: v[1], y: v[2] };
+    let rect = Rect { x1: bl.x, y1: bl.y, x2: bl.x + 1, y2: bl.y + 3 }; // 2×4
+    if !rect_within(&rect, &map_rect) {
+        return Err(anyhow!("Storage {} fora do mapa: rect=({},{},{},{})",
+            id, rect.x1, rect.y1, rect.x2, rect.y2));
+    }
+
+    storages.push(Storage { id, rect, staging_bl: None, staging_dir: None });
+}
+
+        
     }
 
     /* ========== 4) CARRIERS ========== */
@@ -371,17 +370,23 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         }
     }
 
+    
+
+
     /* ========== 7) Construir Instance ========== */
-    Ok(Instance {
-        width,
-        height,
-        cranes,
-        dispatches,
-        storages,
-        carriers,
-        storage_stacks,
-        demands,
-        total_new_containers,
-        ships,
-    })
+  Ok(Instance {
+    width,
+    height,
+    cranes,
+    dispatches,
+    storages,
+    carriers,
+    storage_stacks,
+    demands,
+    total_new_containers,
+    ships,
+    yard_rect: None,
+})
+
 }
+

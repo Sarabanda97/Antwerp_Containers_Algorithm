@@ -1,23 +1,23 @@
 ﻿mod model;
 mod parser;
+mod geometry;
+mod state;
 mod planner;
 mod writer;
 
-use std::path::Path;
+use parser::parse_instance;
+use geometry::enrich_instance_geometry;
+use planner::simple::plan_all_demands;
+use writer::write_solution;
 
 fn main() -> anyhow::Result<()> {
-    let inst_path = "../instances/toy_instance/toy.txt";
-    let inst = parser::parse_instance(inst_path)?;
+    let mut inst = parse_instance("instances/toy_instance/toy.txt")?;
+    enrich_instance_geometry(&mut inst);
 
-    // Debug: print instance summary
-    println!("{}", inst);
+    let cmds = plan_all_demands(&inst);
 
-    let plan = planner::plan_sequential(&inst)?;
-    let out_path = Path::new("../solutions/toy/solution_DEMO_toy.txt");
-
-    writer::write_solution(&plan, out_path)?;
-    // também mostra no stdout para debug
-    for line in &plan { println!("{}", line); }
+    // para já só 1 carrier, id 0
+    write_solution("solutions/toy/solution_toy1.txt", &[(0, cmds)])?;
 
     Ok(())
 }

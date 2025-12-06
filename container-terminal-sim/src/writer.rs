@@ -1,22 +1,23 @@
-// This file contains functions for writing output data, such as the results of the simulation.
+use crate::planner::path::Command;
 
-use std::fs;
-use std::path::Path;
-
-pub fn write_output(results: &str, output_path: &str) -> std::io::Result<()> {
-    use std::fs::File;
+pub fn write_solution(path: &str, cmds_by_carrier: &[(i32, Vec<Command>)]) -> std::io::Result<()> {
     use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
 
-    let mut file = File::create(output_path)?;
-    file.write_all(results.as_bytes())?;
-    Ok(())
-}
-
-pub fn write_solution(lines: &[String], path: &Path) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    for (cid, cmds) in cmds_by_carrier {
+        writeln!(f, "carrier {}", cid)?;
+        for cmd in cmds {
+            match cmd {
+                Command::Move { t, k } =>
+                    writeln!(f, "{} move {}", t, k)?,
+                Command::Face { t, dir } =>
+                    writeln!(f, "{} face {:?}", t, dir)?,
+                Command::Load { t } =>
+                    writeln!(f, "{} load", t)?,
+                Command::Unload { t } =>
+                    writeln!(f, "{} unload", t)?,
+            }
+        }
     }
-    let content = lines.join("\n");
-    fs::write(path, content)?;
     Ok(())
 }
