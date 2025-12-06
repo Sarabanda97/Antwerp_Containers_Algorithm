@@ -7,7 +7,7 @@ pub fn enrich_instance_geometry(inst: &mut Instance) {
 }
 
 // yard_rect: agora podemos até nem usar no toy, mas fica já:
-fn compute_yard_rect(inst: &mut Instance) {
+pub fn compute_yard_rect(inst: &mut Instance) {
     if inst.storages.is_empty() {
         inst.yard_rect = None;
         return;
@@ -28,7 +28,7 @@ fn compute_yard_rect(inst: &mut Instance) {
     inst.yard_rect = Some(Rect { x1, y1, x2, y2 });
 }
 
-fn compute_storage_staging(inst: &mut Instance) {
+pub fn compute_storage_staging(inst: &mut Instance) {
     for s in &mut inst.storages {
         let sx = s.rect.x1;
         let sy = s.rect.y1;
@@ -47,7 +47,7 @@ fn compute_storage_staging(inst: &mut Instance) {
     }
 }
 
-fn compute_dispatch_staging(inst: &mut Instance) {
+pub fn compute_dispatch_staging(inst: &mut Instance) {
     for d in &mut inst.dispatches {
         let dx = d.rect.x1;
         let dy = d.rect.y1;
