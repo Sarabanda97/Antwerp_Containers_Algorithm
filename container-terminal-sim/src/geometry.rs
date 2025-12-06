@@ -29,38 +29,23 @@ pub fn compute_yard_rect(inst: &mut Instance) {
 
 pub fn compute_storage_staging(inst: &mut Instance) {
     for s in &mut inst.storages {
-        let sx = s.rect.x1;
-        let sy = s.rect.y1;
-
-        // carrier 4x8 em pé, storage 2x4 “no meio”
-        let mut bl = Point { x: sx - 1, y: sy - 2 };
-        let dir = Direction::Up;
-
-        if bl.x < 0 { bl.x = 0; }
-        if bl.y < 0 { bl.y = 0; }
-        if bl.x + 3 > inst.width { bl.x = inst.width - 3; }
-        if bl.y + 7 > inst.height { bl.y = inst.height - 7; }
-
-        s.staging_bl = Some(bl);
-        s.staging_dir = Some(dir);
+        s.staging_bl = Some(Point {
+            x: s.rect.x1 - 2,    // 2 à esquerda
+            y: s.rect.y2,        // logo acima do storage
+        });
+        s.staging_dir = Some(Direction::Up);
     }
 }
+
+
 
 pub fn compute_dispatch_staging(inst: &mut Instance) {
     for d in &mut inst.dispatches {
-        let dx = d.rect.x1;
-        let dy = d.rect.y1;
-
-        // carrier 8x4 deitado, dispatch 4x2 “lá dentro”
-        let mut bl = Point { x: dx - 2, y: dy - 1 };
-        let dir = Direction::Right;
-
-        if bl.x < 0 { bl.x = 0; }
-        if bl.y < 0 { bl.y = 0; }
-        if bl.x + 7 > inst.width { bl.x = inst.width - 7; }
-        if bl.y + 3 > inst.height { bl.y = inst.height - 3; }
-
-        d.staging_bl = Some(bl);
-        d.staging_dir = Some(dir);
+        d.staging_bl = Some(Point {
+            x: d.rect.x1 - 2,
+            y: d.rect.y1 - 2,
+        });
+        d.staging_dir = Some(Direction::Right);
     }
 }
+
