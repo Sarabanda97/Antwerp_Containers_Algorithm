@@ -84,16 +84,23 @@ fn face_to(c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
     let center = center_from_bl(c.bl, c.dir);
     c.dir = new_dir;
     c.bl  = bl_from_center(center, c.dir);
+
+       println!(
+        "% DEBUG face @ t={} -> dir={:?}, bl=({}, {})",
+        t, c.dir, c.bl.x, c.bl.y
+    );
+
 }
 
 /// move em frente ou marcha-atrás, consoante o sinal de `steps`
 /// duração = |steps|
 fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
     if steps == 0 { return; }
-
-    let t = c.time;
-    cmds.push(Command::Move { t, k: steps });
-    c.time += steps.abs();
+    let t_start = c.time;
+    let t_end   = t_start + steps.abs();
+    
+    cmds.push(Command::Move { t: t_start, k: steps });
+    c.time = t_end;
 
     let (dx, dy) = match c.dir {
         Direction::Up    => (0,  1),
@@ -104,6 +111,12 @@ fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
 
     c.bl.x += dx * steps;
     c.bl.y += dy * steps;
+
+    println!(
+        "% DEBUG move @ t={}..{} k={} dir={:?} -> bl=({}, {})",
+        t_start, t_end, steps, c.dir, c.bl.x, c.bl.y
+    );
+
 }
 
 
@@ -182,18 +195,14 @@ fn go_dispatch_to_storage(
 ) {
     let yard = inst.yard_rect.expect("yard_rect esperado");
 
-    // 1) sair para a esquerda até à “entrada do corredor” antes do yard
-    //    (qualquer valor um bocado à esquerda da coluna mínima do yard)
-    let gate_x = yard.x1 - LONG; // 8 células à esquerda do storage mais à esquerda
-    move_along_x(c, gate_x, cmds);
+    // 1) Despacho está cá em baixo (y ≈ 5), fora do yard.
+    //    Primeiro alinhar X com o staging da storage enquanto ainda estamos abaixo do yard:
+    move_along_x(c, target_bl.x, cmds); // horizontal FORA do yard
 
-    // 2) alinhar Y com o staging da storage
-    move_along_y(c, target_bl.y, cmds);
+    // 2) Agora subir em Y até à staging do storage (entrando no yard só em vertical):
+    move_along_y(c, target_bl.y, cmds); // só vertical dentro do yard
 
-    // 3) alinhar X até ao staging X da storage
-    move_along_x(c, target_bl.x, cmds);
-
-    // 4) orientação final (Up normalmente)
+    // 3) Garantir orientação final (Up)
     face_to(c, target_dir, cmds);
 }
 

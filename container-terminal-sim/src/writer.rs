@@ -1,38 +1,40 @@
-use crate::planner::path::Command;
 use crate::model::Direction;
-use std::fmt;
+use crate::planner::path::Command;
 
-impl fmt::Display for Direction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Direction::Up    => "up",
-            Direction::Down  => "down",
-            Direction::Left  => "left",
-            Direction::Right => "right",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-pub fn write_solution(path: &str, cmds_by_carrier: &[(i32, Vec<Command>)]) -> std::io::Result<()> {
+pub fn write_solution(
+    path: &str,
+    carrier_plans: &[(i32, Vec<Command>)],
+) -> anyhow::Result<()> {
     use std::io::Write;
-    let mut f = std::fs::File::create(path)?;
 
-    for (cid, cmds) in cmds_by_carrier {
-        writeln!(f, "carrier {}", cid)?;
+    let mut file = std::fs::File::create(path)?;
+
+    for (carrier_id, cmds) in carrier_plans {
+        writeln!(file, "carrier {}", carrier_id)?;
+
         for cmd in cmds {
             match cmd {
-                Command::Move { t, k } =>
-                    writeln!(f, "{} move {}", t, k)?,
-                Command::Face { t, dir } =>
-                    writeln!(f, "{} face {}", t, dir)?,  
-                Command::Load { t } =>
-                    writeln!(f, "{} load", t)?,
-                Command::Unload { t } =>
-                    writeln!(f, "{} unload", t)?,
+                Command::Move { t, k } => {
+                    writeln!(file, "{} move {}", t, k)?;
+                }
+                Command::Face { t, dir } => {
+                    let dir_str = match dir {
+                        Direction::Up    => "up",
+                        Direction::Down  => "down",
+                        Direction::Left  => "left",
+                        Direction::Right => "right",
+                    };
+                    writeln!(file, "{} face {}", t, dir_str)?;
+                }
+                Command::Load { t } => {
+                    writeln!(file, "{} load", t)?;
+                }
+                Command::Unload { t } => {
+                    writeln!(file, "{} unload", t)?;
+                }
             }
         }
     }
-    
+
     Ok(())
 }

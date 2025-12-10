@@ -37,13 +37,14 @@ pub fn compute_storage_staging(inst: &mut Instance) {
         // Queremos o carrier 4×8 centrado no storage:
         //  - em X: estende 1 célula para cada lado → bl.x = x1 - 1
         //  - em Y: estende 2 para baixo e 2 para cima → bl.y = y1 - 2
-        let bl = Point {
-            x: s.rect.x1 - 1,
-            y: s.rect.y1 - 2,
-        };
+        // storage 2×4: [x1..x1+1] × [y1..y1+3]
+// carrier 4×8 (Up) a abraçar o storage → 1 célula de cada lado em X, 2 para baixo e 2 para cima em Y
+s.staging_bl = Some(Point {
+    x: s.rect.x1 - 1,
+    y: s.rect.y1 - 2,
+});
+s.staging_dir = Some(Direction::Up);
 
-        s.staging_bl  = Some(bl);
-        s.staging_dir = Some(Direction::Up); // carrier vertical
     }
 }
 
@@ -56,12 +57,13 @@ pub fn compute_dispatch_staging(inst: &mut Instance) {
         // Carrier 8×4 centrado:
         //  - em X: 2 células para cada lado → bl.x = x1 - 2
         //  - em Y: 1 para baixo e 1 para cima → bl.y = y1 - 1
-        let bl = Point {
-            x: d.rect.x1 - 2,
-            y: d.rect.y1 - 1,
-        };
-
-        d.staging_bl  = Some(bl);
-        d.staging_dir = Some(Direction::Right); // carrier horizontal
+        // dispatch 4×2: [x1..x1+3] × [y1..y1+1]
+// carrier 8×4 (Right) → 2 cada lado em X, 1 cada lado em Y
+d.staging_bl = Some(Point {
+    x: d.rect.x1 - 2,
+    y: d.rect.y1 - 1,
+});
+d.staging_dir = Some(Direction::Right);
+ // carrier horizontal
     }
 }
