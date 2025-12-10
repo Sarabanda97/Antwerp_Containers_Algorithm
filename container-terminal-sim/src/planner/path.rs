@@ -92,8 +92,8 @@ fn face_to(c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
 
 }
 
-/// move em frente ou marcha-atrás, consoante o sinal de `steps`
-/// duração = |steps|
+//move em frente ou marcha-atrás, consoante o sinal de `steps`
+// duração = |steps|
 fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
     if steps == 0 { return; }
     let t_start = c.time;

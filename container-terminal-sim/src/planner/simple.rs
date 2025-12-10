@@ -1,19 +1,34 @@
 use std::collections::HashMap;
-
-use crate::model::{Instance, Id, Demand};
+use crate::model::{Id, Instance, Demand};
+use crate::planner::path::{go_to_pose, Command};
 use crate::state::CarrierState;
-use crate::planner::path::{Command, go_to_pose};
 
-/// Onde está cada contentor (vista lógica)
 #[derive(Clone, Debug)]
-enum ContainerLoc {
-    Storage { storage_id: Id, depth: usize }, // depth = índice na stack (0 = fundo)
+enum ContainerLocation {
+    Storage  { storage_id: Id, depth: usize },
     Dispatch { dispatch_id: Id },
     OnCarrier { carrier_id: Id },
-    // Ship / Outside podemos ignorar por agora
 }
 
-/// índice rápido: storage_id -> índice no vetor inst.storages / world.storage_stacks
+type ContainerMap = HashMap<Id, ContainerLocation>;
+
+fn build_initial_container_map(inst: &Instance) -> ContainerMap {
+    let mut map = ContainerMap::new();
+
+    for (s_idx, stack) in inst.storage_stacks.iter().enumerate() {
+        let storage_id = inst.storages[s_idx].id;
+        for (depth, &cid) in stack.iter().enumerate() {
+            map.insert(
+                cid,
+                ContainerLocation::Storage { storage_id, depth },
+            );
+        }
+    }
+
+    map
+}
+
+// índice rápido: storage_id -> índice no vetor inst.storages / storage_stacks
 fn build_storage_index(inst: &Instance) -> HashMap<Id, usize> {
     let mut m = HashMap::new();
     for (idx, s) in inst.storages.iter().enumerate() {
@@ -31,19 +46,19 @@ fn build_dispatch_index(inst: &Instance) -> HashMap<Id, usize> {
     m
 }
 
-/// Constroi container_location a partir de inst.storage_stacks inicial
+// Constroi container_location a partir de inst.storage_stacks inicial
 fn init_container_locations(
     inst: &Instance,
-    storage_index: &HashMap<Id, usize>,
-) -> HashMap<Id, ContainerLoc> {
-    let mut locs = HashMap::new();
+    _storage_index: &HashMap<Id, usize>,
+) -> ContainerMap {
+    let mut locs: ContainerMap = HashMap::new();
 
     for (s_idx, stack) in inst.storage_stacks.iter().enumerate() {
         let storage_id = inst.storages[s_idx].id;
         for (depth, &cid) in stack.iter().enumerate() {
             locs.insert(
                 cid,
-                ContainerLoc::Storage { storage_id, depth },
+                ContainerLocation::Storage { storage_id, depth },
             );
         }
     }
@@ -51,30 +66,30 @@ fn init_container_locations(
     locs
 }
 
-/// Helper: faz um load no tempo atual deste carrier e atualiza estado/lógica
+// Helper: faz um load no tempo atual deste carrier e atualiza estado/lógica
 fn do_load(
     c: &mut CarrierState,
     carrier_id: Id,
     container_id: Id,
     cmds: &mut Vec<Command>,
-    locs: &mut HashMap<Id, ContainerLoc>,
+    locs: &mut ContainerMap,
 ) {
     let t = c.time;
     cmds.push(Command::Load { t });
     c.time += 1;
 
     c.carrying = Some(container_id);
-    locs.insert(container_id, ContainerLoc::OnCarrier { carrier_id });
+    locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id });
 }
 
-/// Helper: unload para storage (atualiza stack + localização)
+// Helper: unload para storage (atualiza stack + localização)
 fn do_unload_to_storage(
     c: &mut CarrierState,
     container_id: Id,
     storage_id: Id,
     storage_stacks: &mut Vec<Vec<Id>>,
     storage_index: &HashMap<Id, usize>,
-    locs: &mut HashMap<Id, ContainerLoc>,
+    locs: &mut ContainerMap,
     cmds: &mut Vec<Command>,
 ) {
     let t = c.time;
@@ -98,17 +113,16 @@ fn do_unload_to_storage(
 
     locs.insert(
         container_id,
-        ContainerLoc::Storage { storage_id, depth },
+        ContainerLocation::Storage { storage_id, depth },
     );
 }
 
-
-/// Helper: unload para dispatch (para o caso de LOAD d c → ship)
+// Helper: unload para dispatch (para o caso de LOAD d c → ship)
 fn do_unload_to_dispatch(
     c: &mut CarrierState,
     container_id: Id,
     dispatch_id: Id,
-    locs: &mut HashMap<Id, ContainerLoc>,
+    locs: &mut ContainerMap,
     cmds: &mut Vec<Command>,
 ) {
     let t = c.time;
@@ -118,7 +132,7 @@ fn do_unload_to_dispatch(
 
     locs.insert(
         container_id,
-        ContainerLoc::Dispatch { dispatch_id },
+        ContainerLocation::Dispatch { dispatch_id },
     );
 }
 
@@ -140,13 +154,12 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
         .expect("Esperava pelo menos 1 carrier");
 
     let mut c = CarrierState {
-    id: carrier_def.id,
-    bl: carrier_def.bl,
-    dir: carrier_def.dir,
-    carrying: None,
-    time: 0,
-};
-
+        id:   carrier_def.id,
+        bl:   carrier_def.bl,
+        dir:  carrier_def.dir,
+        carrying: None,
+        time: 0,
+    };
 
     let carrier_id = c.id;
     let mut cmds: Vec<Command> = Vec::new();
@@ -162,7 +175,7 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
                 // container chega do navio → aparece na dispatch
                 locs.insert(
                     container_id,
-                    ContainerLoc::Dispatch { dispatch_id },
+                    ContainerLocation::Dispatch { dispatch_id },
                 );
 
                 // 1) ir para staging da dispatch
@@ -225,7 +238,7 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
                     .expect("Demand LOAD com container desconhecido");
 
                 match loc {
-                    ContainerLoc::Storage { storage_id, depth } => {
+                    ContainerLocation::Storage { storage_id, depth } => {
                         let s_idx = *storage_index
                             .get(&storage_id)
                             .expect("storage inexistente em LOAD");
@@ -293,14 +306,14 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
                         );
                     }
 
-                    ContainerLoc::Dispatch { dispatch_id: d2 } => {
+                    ContainerLocation::Dispatch { dispatch_id: d2 } => {
                         eprintln!(
                             "[WARN] LOAD pediu contentor {} que já está na dispatch {}. Caso especial ainda não tratado.",
                             container_id, d2
                         );
                     }
 
-                    ContainerLoc::OnCarrier { carrier_id: cid } => {
+                    ContainerLocation::OnCarrier { carrier_id: cid } => {
                         eprintln!(
                             "[WARN] LOAD do contentor {} mas já está em cima do carrier {}.",
                             container_id, cid

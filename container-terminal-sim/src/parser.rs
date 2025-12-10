@@ -4,9 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use crate::model::*;
 
-/* ===========================
- * Auxiliares
- * =========================== */
+/* Auxiliares */
 
 fn clean(s: &str) -> Option<String> {
     let s = s.split('%').next().unwrap_or("").trim();
@@ -37,9 +35,7 @@ fn rect_intersects(a: &Rect, b: &Rect) -> bool {
     !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
 }
 
-/* ===========================
- * Parser principal
- * =========================== */
+/* Parser principal */
 
 pub fn parse_instance(path: &str) -> Result<Instance> {
     let file = File::open(path)
@@ -55,7 +51,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         if *i < lines.len() { let v = lines[*i].clone(); *i += 1; Some(v) } else { None }
     };
 
-    /* ========== 1) MAPA ========== */
+    /*  MAPA */
     while i < lines.len() && !peek_is_number(&lines[i]) { i += 1; }
     let first = next(&mut i).context("Ficheiro vazio ou sem dimensões")?;
     let mut it = first.split_whitespace();
@@ -66,7 +62,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     }
     let map_rect = Rect { x1: 0, y1: 0, x2: width, y2: height };
 
-    /* ========== 2) CRANES + DISPATCHES ========== */
+    /*CRANES + DISPATCHES */
     let n_cranes_line = next_number_line(&lines, &mut i)
         .context("Falta número de cranes")?;
     let n_cranes: i32 = n_cranes_line.split_whitespace().next().unwrap().parse()?;
@@ -148,7 +144,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         cranes.push(Crane { id, rect, dispatch_ids: crane_dispatch_ids });
     }
 
-    /* ========== 3) STORAGES ========== */
+    /*STORAGES */
     let n_stor_line = next_number_line(&lines, &mut i)
         .context("Falta número de storages")?;
     let n_stor: i32 = n_stor_line.split_whitespace().next().unwrap().parse()?;
@@ -182,7 +178,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         });
     }
 
-    /* ========== 4) CARRIERS ========== */
+    /*CARRIERS */
     let n_car_line = next_number_line(&lines, &mut i)
         .context("Falta número de carriers")?;
     let n_car: i32 = n_car_line.split_whitespace().next().unwrap().parse()?;
@@ -215,7 +211,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         });
     }
 
-    /* ========== 5) CONTAINERS INICIAIS ========== */
+    /*CONTAINERS INICIAIS */
     let n_cont_line = next_number_line(&lines, &mut i)
         .context("Falta número de containers iniciais")?;
     let n_cont: i32 = n_cont_line.split_whitespace().next().unwrap().parse()?;
@@ -247,7 +243,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         }
     }
 
-    /* ========== 6) DEMAND SECTION ========== */
+    /*DEMAND SECTION */
     let mut demands: Vec<Demand> = Vec::new();
     let mut ships: Vec<ShipBlock> = Vec::new();
     let mut total_new_containers: Option<i32> = None;
@@ -398,7 +394,7 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         }
     }
 
-    /* ========== 7) Construir Instance ========== */
+    /*CONSTRUÇÃO DA INSTANCE */
     Ok(Instance {
         width,
         height,
