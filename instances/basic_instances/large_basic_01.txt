@@ -1,0 +1,1482 @@
+299 204
+crane section
+3
+0 30 28 40 34 1 0 33 30
+1 120 28 130 34 1 0 123 30
+2 210 28 220 34 1 0 213 30
+storage section
+840
+0 30 90
+1 33 90
+2 36 90
+3 39 90
+4 42 90
+5 45 90
+6 48 90
+7 51 90
+8 54 90
+9 57 90
+10 60 90
+11 63 90
+12 66 90
+13 69 90
+14 72 90
+15 75 90
+16 78 90
+17 81 90
+18 84 90
+19 87 90
+20 120 90
+21 123 90
+22 126 90
+23 129 90
+24 132 90
+25 135 90
+26 138 90
+27 141 90
+28 144 90
+29 147 90
+30 150 90
+31 153 90
+32 156 90
+33 159 90
+34 162 90
+35 165 90
+36 168 90
+37 171 90
+38 174 90
+39 177 90
+40 210 90
+41 213 90
+42 216 90
+43 219 90
+44 222 90
+45 225 90
+46 228 90
+47 231 90
+48 234 90
+49 237 90
+50 240 90
+51 243 90
+52 246 90
+53 249 90
+54 252 90
+55 255 90
+56 258 90
+57 261 90
+58 264 90
+59 267 90
+60 30 94
+61 33 94
+62 36 94
+63 39 94
+64 42 94
+65 45 94
+66 48 94
+67 51 94
+68 54 94
+69 57 94
+70 60 94
+71 63 94
+72 66 94
+73 69 94
+74 72 94
+75 75 94
+76 78 94
+77 81 94
+78 84 94
+79 87 94
+80 120 94
+81 123 94
+82 126 94
+83 129 94
+84 132 94
+85 135 94
+86 138 94
+87 141 94
+88 144 94
+89 147 94
+90 150 94
+91 153 94
+92 156 94
+93 159 94
+94 162 94
+95 165 94
+96 168 94
+97 171 94
+98 174 94
+99 177 94
+100 210 94
+101 213 94
+102 216 94
+103 219 94
+104 222 94
+105 225 94
+106 228 94
+107 231 94
+108 234 94
+109 237 94
+110 240 94
+111 243 94
+112 246 94
+113 249 94
+114 252 94
+115 255 94
+116 258 94
+117 261 94
+118 264 94
+119 267 94
+120 30 98
+121 33 98
+122 36 98
+123 39 98
+124 42 98
+125 45 98
+126 48 98
+127 51 98
+128 54 98
+129 57 98
+130 60 98
+131 63 98
+132 66 98
+133 69 98
+134 72 98
+135 75 98
+136 78 98
+137 81 98
+138 84 98
+139 87 98
+140 120 98
+141 123 98
+142 126 98
+143 129 98
+144 132 98
+145 135 98
+146 138 98
+147 141 98
+148 144 98
+149 147 98
+150 150 98
+151 153 98
+152 156 98
+153 159 98
+154 162 98
+155 165 98
+156 168 98
+157 171 98
+158 174 98
+159 177 98
+160 210 98
+161 213 98
+162 216 98
+163 219 98
+164 222 98
+165 225 98
+166 228 98
+167 231 98
+168 234 98
+169 237 98
+170 240 98
+171 243 98
+172 246 98
+173 249 98
+174 252 98
+175 255 98
+176 258 98
+177 261 98
+178 264 98
+179 267 98
+180 30 102
+181 33 102
+182 36 102
+183 39 102
+184 42 102
+185 45 102
+186 48 102
+187 51 102
+188 54 102
+189 57 102
+190 60 102
+191 63 102
+192 66 102
+193 69 102
+194 72 102
+195 75 102
+196 78 102
+197 81 102
+198 84 102
+199 87 102
+200 120 102
+201 123 102
+202 126 102
+203 129 102
+204 132 102
+205 135 102
+206 138 102
+207 141 102
+208 144 102
+209 147 102
+210 150 102
+211 153 102
+212 156 102
+213 159 102
+214 162 102
+215 165 102
+216 168 102
+217 171 102
+218 174 102
+219 177 102
+220 210 102
+221 213 102
+222 216 102
+223 219 102
+224 222 102
+225 225 102
+226 228 102
+227 231 102
+228 234 102
+229 237 102
+230 240 102
+231 243 102
+232 246 102
+233 249 102
+234 252 102
+235 255 102
+236 258 102
+237 261 102
+238 264 102
+239 267 102
+240 30 106
+241 33 106
+242 36 106
+243 39 106
+244 42 106
+245 45 106
+246 48 106
+247 51 106
+248 54 106
+249 57 106
+250 60 106
+251 63 106
+252 66 106
+253 69 106
+254 72 106
+255 75 106
+256 78 106
+257 81 106
+258 84 106
+259 87 106
+260 120 106
+261 123 106
+262 126 106
+263 129 106
+264 132 106
+265 135 106
+266 138 106
+267 141 106
+268 144 106
+269 147 106
+270 150 106
+271 153 106
+272 156 106
+273 159 106
+274 162 106
+275 165 106
+276 168 106
+277 171 106
+278 174 106
+279 177 106
+280 210 106
+281 213 106
+282 216 106
+283 219 106
+284 222 106
+285 225 106
+286 228 106
+287 231 106
+288 234 106
+289 237 106
+290 240 106
+291 243 106
+292 246 106
+293 249 106
+294 252 106
+295 255 106
+296 258 106
+297 261 106
+298 264 106
+299 267 106
+300 30 110
+301 33 110
+302 36 110
+303 39 110
+304 42 110
+305 45 110
+306 48 110
+307 51 110
+308 54 110
+309 57 110
+310 60 110
+311 63 110
+312 66 110
+313 69 110
+314 72 110
+315 75 110
+316 78 110
+317 81 110
+318 84 110
+319 87 110
+320 120 110
+321 123 110
+322 126 110
+323 129 110
+324 132 110
+325 135 110
+326 138 110
+327 141 110
+328 144 110
+329 147 110
+330 150 110
+331 153 110
+332 156 110
+333 159 110
+334 162 110
+335 165 110
+336 168 110
+337 171 110
+338 174 110
+339 177 110
+340 210 110
+341 213 110
+342 216 110
+343 219 110
+344 222 110
+345 225 110
+346 228 110
+347 231 110
+348 234 110
+349 237 110
+350 240 110
+351 243 110
+352 246 110
+353 249 110
+354 252 110
+355 255 110
+356 258 110
+357 261 110
+358 264 110
+359 267 110
+360 30 114
+361 33 114
+362 36 114
+363 39 114
+364 42 114
+365 45 114
+366 48 114
+367 51 114
+368 54 114
+369 57 114
+370 60 114
+371 63 114
+372 66 114
+373 69 114
+374 72 114
+375 75 114
+376 78 114
+377 81 114
+378 84 114
+379 87 114
+380 120 114
+381 123 114
+382 126 114
+383 129 114
+384 132 114
+385 135 114
+386 138 114
+387 141 114
+388 144 114
+389 147 114
+390 150 114
+391 153 114
+392 156 114
+393 159 114
+394 162 114
+395 165 114
+396 168 114
+397 171 114
+398 174 114
+399 177 114
+400 210 114
+401 213 114
+402 216 114
+403 219 114
+404 222 114
+405 225 114
+406 228 114
+407 231 114
+408 234 114
+409 237 114
+410 240 114
+411 243 114
+412 246 114
+413 249 114
+414 252 114
+415 255 114
+416 258 114
+417 261 114
+418 264 114
+419 267 114
+420 30 148
+421 33 148
+422 36 148
+423 39 148
+424 42 148
+425 45 148
+426 48 148
+427 51 148
+428 54 148
+429 57 148
+430 60 148
+431 63 148
+432 66 148
+433 69 148
+434 72 148
+435 75 148
+436 78 148
+437 81 148
+438 84 148
+439 87 148
+440 120 148
+441 123 148
+442 126 148
+443 129 148
+444 132 148
+445 135 148
+446 138 148
+447 141 148
+448 144 148
+449 147 148
+450 150 148
+451 153 148
+452 156 148
+453 159 148
+454 162 148
+455 165 148
+456 168 148
+457 171 148
+458 174 148
+459 177 148
+460 210 148
+461 213 148
+462 216 148
+463 219 148
+464 222 148
+465 225 148
+466 228 148
+467 231 148
+468 234 148
+469 237 148
+470 240 148
+471 243 148
+472 246 148
+473 249 148
+474 252 148
+475 255 148
+476 258 148
+477 261 148
+478 264 148
+479 267 148
+480 30 152
+481 33 152
+482 36 152
+483 39 152
+484 42 152
+485 45 152
+486 48 152
+487 51 152
+488 54 152
+489 57 152
+490 60 152
+491 63 152
+492 66 152
+493 69 152
+494 72 152
+495 75 152
+496 78 152
+497 81 152
+498 84 152
+499 87 152
+500 120 152
+501 123 152
+502 126 152
+503 129 152
+504 132 152
+505 135 152
+506 138 152
+507 141 152
+508 144 152
+509 147 152
+510 150 152
+511 153 152
+512 156 152
+513 159 152
+514 162 152
+515 165 152
+516 168 152
+517 171 152
+518 174 152
+519 177 152
+520 210 152
+521 213 152
+522 216 152
+523 219 152
+524 222 152
+525 225 152
+526 228 152
+527 231 152
+528 234 152
+529 237 152
+530 240 152
+531 243 152
+532 246 152
+533 249 152
+534 252 152
+535 255 152
+536 258 152
+537 261 152
+538 264 152
+539 267 152
+540 30 156
+541 33 156
+542 36 156
+543 39 156
+544 42 156
+545 45 156
+546 48 156
+547 51 156
+548 54 156
+549 57 156
+550 60 156
+551 63 156
+552 66 156
+553 69 156
+554 72 156
+555 75 156
+556 78 156
+557 81 156
+558 84 156
+559 87 156
+560 120 156
+561 123 156
+562 126 156
+563 129 156
+564 132 156
+565 135 156
+566 138 156
+567 141 156
+568 144 156
+569 147 156
+570 150 156
+571 153 156
+572 156 156
+573 159 156
+574 162 156
+575 165 156
+576 168 156
+577 171 156
+578 174 156
+579 177 156
+580 210 156
+581 213 156
+582 216 156
+583 219 156
+584 222 156
+585 225 156
+586 228 156
+587 231 156
+588 234 156
+589 237 156
+590 240 156
+591 243 156
+592 246 156
+593 249 156
+594 252 156
+595 255 156
+596 258 156
+597 261 156
+598 264 156
+599 267 156
+600 30 160
+601 33 160
+602 36 160
+603 39 160
+604 42 160
+605 45 160
+606 48 160
+607 51 160
+608 54 160
+609 57 160
+610 60 160
+611 63 160
+612 66 160
+613 69 160
+614 72 160
+615 75 160
+616 78 160
+617 81 160
+618 84 160
+619 87 160
+620 120 160
+621 123 160
+622 126 160
+623 129 160
+624 132 160
+625 135 160
+626 138 160
+627 141 160
+628 144 160
+629 147 160
+630 150 160
+631 153 160
+632 156 160
+633 159 160
+634 162 160
+635 165 160
+636 168 160
+637 171 160
+638 174 160
+639 177 160
+640 210 160
+641 213 160
+642 216 160
+643 219 160
+644 222 160
+645 225 160
+646 228 160
+647 231 160
+648 234 160
+649 237 160
+650 240 160
+651 243 160
+652 246 160
+653 249 160
+654 252 160
+655 255 160
+656 258 160
+657 261 160
+658 264 160
+659 267 160
+660 30 164
+661 33 164
+662 36 164
+663 39 164
+664 42 164
+665 45 164
+666 48 164
+667 51 164
+668 54 164
+669 57 164
+670 60 164
+671 63 164
+672 66 164
+673 69 164
+674 72 164
+675 75 164
+676 78 164
+677 81 164
+678 84 164
+679 87 164
+680 120 164
+681 123 164
+682 126 164
+683 129 164
+684 132 164
+685 135 164
+686 138 164
+687 141 164
+688 144 164
+689 147 164
+690 150 164
+691 153 164
+692 156 164
+693 159 164
+694 162 164
+695 165 164
+696 168 164
+697 171 164
+698 174 164
+699 177 164
+700 210 164
+701 213 164
+702 216 164
+703 219 164
+704 222 164
+705 225 164
+706 228 164
+707 231 164
+708 234 164
+709 237 164
+710 240 164
+711 243 164
+712 246 164
+713 249 164
+714 252 164
+715 255 164
+716 258 164
+717 261 164
+718 264 164
+719 267 164
+720 30 168
+721 33 168
+722 36 168
+723 39 168
+724 42 168
+725 45 168
+726 48 168
+727 51 168
+728 54 168
+729 57 168
+730 60 168
+731 63 168
+732 66 168
+733 69 168
+734 72 168
+735 75 168
+736 78 168
+737 81 168
+738 84 168
+739 87 168
+740 120 168
+741 123 168
+742 126 168
+743 129 168
+744 132 168
+745 135 168
+746 138 168
+747 141 168
+748 144 168
+749 147 168
+750 150 168
+751 153 168
+752 156 168
+753 159 168
+754 162 168
+755 165 168
+756 168 168
+757 171 168
+758 174 168
+759 177 168
+760 210 168
+761 213 168
+762 216 168
+763 219 168
+764 222 168
+765 225 168
+766 228 168
+767 231 168
+768 234 168
+769 237 168
+770 240 168
+771 243 168
+772 246 168
+773 249 168
+774 252 168
+775 255 168
+776 258 168
+777 261 168
+778 264 168
+779 267 168
+780 30 172
+781 33 172
+782 36 172
+783 39 172
+784 42 172
+785 45 172
+786 48 172
+787 51 172
+788 54 172
+789 57 172
+790 60 172
+791 63 172
+792 66 172
+793 69 172
+794 72 172
+795 75 172
+796 78 172
+797 81 172
+798 84 172
+799 87 172
+800 120 172
+801 123 172
+802 126 172
+803 129 172
+804 132 172
+805 135 172
+806 138 172
+807 141 172
+808 144 172
+809 147 172
+810 150 172
+811 153 172
+812 156 172
+813 159 172
+814 162 172
+815 165 172
+816 168 172
+817 171 172
+818 174 172
+819 177 172
+820 210 172
+821 213 172
+822 216 172
+823 219 172
+824 222 172
+825 225 172
+826 228 172
+827 231 172
+828 234 172
+829 237 172
+830 240 172
+831 243 172
+832 246 172
+833 249 172
+834 252 172
+835 255 172
+836 258 172
+837 261 172
+838 264 172
+839 267 172
+carrier section
+9
+0 0 41 170
+1 0 83 170
+2 0 35 170
+3 1 143 170
+4 1 128 170
+5 1 164 170
+6 2 251 170
+7 2 245 170
+8 2 227 170
+container section
+420
+0 575
+1 318
+2 810
+3 295
+4 473
+5 542
+6 94
+7 494
+8 641
+9 815
+10 197
+11 366
+12 23
+13 722
+14 643
+15 324
+16 187
+17 223
+18 457
+19 801
+20 55
+21 249
+22 306
+23 717
+24 537
+25 770
+26 100
+27 617
+28 350
+29 646
+30 322
+31 241
+32 314
+33 635
+34 4
+35 698
+36 144
+37 372
+38 231
+39 498
+40 715
+41 265
+42 742
+43 209
+44 15
+45 49
+46 251
+47 168
+48 68
+49 671
+50 356
+51 61
+52 367
+53 490
+54 158
+55 699
+56 58
+57 415
+58 25
+59 733
+60 242
+61 754
+62 486
+63 73
+64 762
+65 226
+66 285
+67 246
+68 293
+69 409
+70 343
+71 257
+72 206
+73 121
+74 704
+75 667
+76 147
+77 67
+78 714
+79 632
+80 120
+81 769
+82 332
+83 212
+84 397
+85 266
+86 207
+87 597
+88 831
+89 56
+90 267
+91 450
+92 509
+93 602
+94 744
+95 682
+96 179
+97 572
+98 596
+99 446
+100 131
+101 65
+102 425
+103 781
+104 497
+105 580
+106 668
+107 660
+108 428
+109 452
+110 127
+111 447
+112 176
+113 377
+114 765
+115 378
+116 678
+117 606
+118 216
+119 493
+120 77
+121 186
+122 320
+123 331
+124 777
+125 795
+126 108
+127 792
+128 254
+129 433
+130 692
+131 683
+132 534
+133 458
+134 768
+135 579
+136 776
+137 103
+138 109
+139 99
+140 154
+141 134
+142 92
+143 721
+144 438
+145 386
+146 321
+147 165
+148 239
+149 323
+150 118
+151 50
+152 645
+153 825
+154 694
+155 142
+156 208
+157 97
+158 803
+159 688
+160 362
+161 311
+162 556
+163 791
+164 219
+165 749
+166 89
+167 581
+168 113
+169 586
+170 0
+171 746
+172 604
+173 271
+174 691
+175 180
+176 550
+177 640
+178 309
+179 421
+180 276
+181 19
+182 34
+183 166
+184 503
+185 687
+186 674
+187 609
+188 145
+189 766
+190 6
+191 27
+192 502
+193 689
+194 804
+195 146
+196 53
+197 269
+198 334
+199 107
+200 408
+201 360
+202 139
+203 299
+204 756
+205 114
+206 735
+207 396
+208 368
+209 634
+210 345
+211 69
+212 268
+213 539
+214 737
+215 369
+216 811
+217 707
+218 558
+219 430
+220 62
+221 417
+222 410
+223 7
+224 697
+225 394
+226 250
+227 135
+228 613
+229 696
+230 435
+231 191
+232 506
+233 570
+234 393
+235 75
+236 169
+237 243
+238 247
+239 775
+240 262
+241 672
+242 455
+243 745
+244 546
+245 326
+246 618
+247 391
+248 289
+249 648
+250 818
+251 525
+252 342
+253 291
+254 440
+255 358
+256 195
+257 718
+258 808
+259 437
+260 664
+261 42
+262 555
+263 565
+264 130
+265 647
+266 474
+267 284
+268 280
+269 196
+270 178
+271 201
+272 304
+273 819
+274 789
+275 729
+276 763
+277 79
+278 312
+279 489
+280 374
+281 63
+282 43
+283 727
+284 84
+285 790
+286 454
+287 359
+288 152
+289 159
+290 823
+291 429
+292 495
+293 188
+294 562
+295 400
+296 723
+297 407
+298 140
+299 286
+300 659
+301 211
+302 459
+303 245
+304 253
+305 464
+306 505
+307 115
+308 481
+309 626
+310 420
+311 270
+312 90
+313 3
+314 336
+315 119
+316 434
+317 488
+318 382
+319 654
+320 576
+321 203
+322 141
+323 337
+324 327
+325 758
+326 582
+327 70
+328 577
+329 685
+330 834
+331 816
+332 292
+333 213
+334 330
+335 515
+336 767
+337 445
+338 87
+339 427
+340 202
+341 649
+342 732
+343 357
+344 799
+345 588
+346 631
+347 483
+348 220
+349 624
+350 530
+351 625
+352 482
+353 793
+354 341
+355 651
+356 80
+357 670
+358 813
+359 153
+360 381
+361 370
+362 802
+363 798
+364 344
+365 778
+366 479
+367 16
+368 658
+369 747
+370 105
+371 64
+372 484
+373 308
+374 263
+375 363
+376 54
+377 156
+378 467
+379 611
+380 76
+381 91
+382 757
+383 549
+384 260
+385 39
+386 510
+387 256
+388 726
+389 527
+390 806
+391 252
+392 183
+393 384
+394 148
+395 472
+396 822
+397 11
+398 594
+399 523
+400 633
+401 282
+402 137
+403 37
+404 573
+405 124
+406 10
+407 669
+408 535
+409 47
+410 752
+411 653
+412 612
+413 278
+414 478
+415 663
+416 125
+417 155
+418 796
+419 405
+demand section
+75  % 75 containers will appear during the day with all operations
+demand crane 0
+3 0 1 2    % 3 ships coming: ships 0, 1 and 2
+ship 0
+20  % number of operations at the crane for this ship
+unload 0 420 676   % pick at discharge 0 container 420 and put it at storage area 676
+unload 0 421 17   % pick at discharge 0 container 421 and put it at storage area 17
+unload 0 422 496   % pick at discharge 0 container 422 and put it at storage area 496
+unload 0 423 788   % pick at discharge 0 container 423 and put it at storage area 788
+unload 0 424 720   % pick at discharge 0 container 424 and put it at storage area 720
+unload 0 425 364   % pick at discharge 0 container 425 and put it at storage area 364
+unload 0 426 301   % pick at discharge 0 container 426 and put it at storage area 301
+unload 0 427 431   % pick at discharge 0 container 427 and put it at storage area 431
+unload 0 428 248   % pick at discharge 0 container 428 and put it at storage area 248
+unload 0 429 181   % pick at discharge 0 container 429 and put it at storage area 181
+unload 0 430 129   % pick at discharge 0 container 430 and put it at storage area 129
+unload 0 431 786   % pick at discharge 0 container 431 and put it at storage area 786
+unload 0 432 424   % pick at discharge 0 container 432 and put it at storage area 424
+unload 0 433 614   % pick at discharge 0 container 433 and put it at storage area 614
+unload 0 434 548   % pick at discharge 0 container 434 and put it at storage area 548
+unload 0 435 782   % pick at discharge 0 container 435 and put it at storage area 782
+unload 0 436 307   % pick at discharge 0 container 436 and put it at storage area 307
+unload 0 437 66   % pick at discharge 0 container 437 and put it at storage area 66
+unload 0 438 544   % pick at discharge 0 container 438 and put it at storage area 544
+load 0 407   % bring container 407 to discharge 0
+ship 1
+20  % number of operations at the crane for this ship
+unload 0 439 607   % pick at discharge 0 container 439 and put it at storage area 607
+unload 0 440 730   % pick at discharge 0 container 440 and put it at storage area 730
+unload 0 441 194   % pick at discharge 0 container 441 and put it at storage area 194
+unload 0 442 677   % pick at discharge 0 container 442 and put it at storage area 677
+unload 0 443 423   % pick at discharge 0 container 443 and put it at storage area 423
+unload 0 444 71   % pick at discharge 0 container 444 and put it at storage area 71
+unload 0 445 610   % pick at discharge 0 container 445 and put it at storage area 610
+unload 0 446 616   % pick at discharge 0 container 446 and put it at storage area 616
+unload 0 447 133   % pick at discharge 0 container 447 and put it at storage area 133
+unload 0 448 736   % pick at discharge 0 container 448 and put it at storage area 736
+load 0 62   % bring container 62 to discharge 0
+load 0 353   % bring container 353 to discharge 0
+load 0 75   % bring container 75 to discharge 0
+load 0 208   % bring container 208 to discharge 0
+load 0 256   % bring container 256 to discharge 0
+load 0 21   % bring container 21 to discharge 0
+load 0 316   % bring container 316 to discharge 0
+load 0 380   % bring container 380 to discharge 0
+load 0 357   % bring container 357 to discharge 0
+load 0 371   % bring container 371 to discharge 0
+ship 2
+10  % number of operations at the crane for this ship
+load 0 190   % bring container 190 to discharge 0
+load 0 313   % bring container 313 to discharge 0
+load 0 230   % bring container 230 to discharge 0
+load 0 391   % bring container 391 to discharge 0
+load 0 161   % bring container 161 to discharge 0
+load 0 31   % bring container 31 to discharge 0
+load 0 106   % bring container 106 to discharge 0
+load 0 11   % bring container 11 to discharge 0
+load 0 110   % bring container 110 to discharge 0
+load 0 405   % bring container 405 to discharge 0
+demand crane 1
+3 3 4 5    % 3 ships coming: ships 3, 4 and 5
+ship 3
+20  % number of operations at the crane for this ship
+load 0 191   % bring container 191 to discharge 0
+load 0 194   % bring container 194 to discharge 0
+load 0 188   % bring container 188 to discharge 0
+load 0 133   % bring container 133 to discharge 0
+load 0 135   % bring container 135 to discharge 0
+load 0 390   % bring container 390 to discharge 0
+load 0 43   % bring container 43 to discharge 0
+load 0 322   % bring container 322 to discharge 0
+load 0 142   % bring container 142 to discharge 0
+load 0 145   % bring container 145 to discharge 0
+load 0 382   % bring container 382 to discharge 0
+load 0 182   % bring container 182 to discharge 0
+load 0 404   % bring container 404 to discharge 0
+load 0 166   % bring container 166 to discharge 0
+load 0 386   % bring container 386 to discharge 0
+load 0 394   % bring container 394 to discharge 0
+load 0 320   % bring container 320 to discharge 0
+load 0 61   % bring container 61 to discharge 0
+load 0 195   % bring container 195 to discharge 0
+load 0 247   % bring container 247 to discharge 0
+ship 4
+20  % number of operations at the crane for this ship
+unload 0 449 629   % pick at discharge 0 container 449 and put it at storage area 629
+unload 0 450 20   % pick at discharge 0 container 450 and put it at storage area 20
+load 0 232   % bring container 232 to discharge 0
+load 0 140   % bring container 140 to discharge 0
+load 0 30   % bring container 30 to discharge 0
+load 0 54   % bring container 54 to discharge 0
+load 0 358   % bring container 358 to discharge 0
+load 0 318   % bring container 318 to discharge 0
+load 0 84   % bring container 84 to discharge 0
+load 0 400   % bring container 400 to discharge 0
+load 0 2   % bring container 2 to discharge 0
+load 0 118   % bring container 118 to discharge 0
+load 0 340   % bring container 340 to discharge 0
+load 0 130   % bring container 130 to discharge 0
+load 0 258   % bring container 258 to discharge 0
+load 0 289   % bring container 289 to discharge 0
+load 0 377   % bring container 377 to discharge 0
+load 0 273   % bring container 273 to discharge 0
+load 0 250   % bring container 250 to discharge 0
+load 0 359   % bring container 359 to discharge 0
+ship 5
+20  % number of operations at the crane for this ship
+unload 0 451 32   % pick at discharge 0 container 451 and put it at storage area 32
+unload 0 452 627   % pick at discharge 0 container 452 and put it at storage area 627
+unload 0 453 628   % pick at discharge 0 container 453 and put it at storage area 628
+unload 0 454 680   % pick at discharge 0 container 454 and put it at storage area 680
+unload 0 455 261   % pick at discharge 0 container 455 and put it at storage area 261
+unload 0 456 814   % pick at discharge 0 container 456 and put it at storage area 814
+load 0 173   % bring container 173 to discharge 0
+load 0 149   % bring container 149 to discharge 0
+load 0 85   % bring container 85 to discharge 0
+load 0 233   % bring container 233 to discharge 0
+load 0 72   % bring container 72 to discharge 0
+load 0 19   % bring container 19 to discharge 0
+load 0 94   % bring container 94 to discharge 0
+load 0 413   % bring container 413 to discharge 0
+load 0 298   % bring container 298 to discharge 0
+load 0 111   % bring container 111 to discharge 0
+load 0 158   % bring container 158 to discharge 0
+load 0 165   % bring container 165 to discharge 0
+load 0 225   % bring container 225 to discharge 0
+load 0 0   % bring container 0 to discharge 0
+demand crane 2
+3 6 7 8    % 3 ships coming: ships 6, 7 and 8
+ship 6
+30  % number of operations at the crane for this ship
+unload 0 457 706   % pick at discharge 0 container 457 and put it at storage area 706
+unload 0 458 476   % pick at discharge 0 container 458 and put it at storage area 476
+unload 0 459 51   % pick at discharge 0 container 459 and put it at storage area 51
+unload 0 460 702   % pick at discharge 0 container 460 and put it at storage area 702
+unload 0 461 652   % pick at discharge 0 container 461 and put it at storage area 652
+unload 0 462 587   % pick at discharge 0 container 462 and put it at storage area 587
+unload 0 463 112   % pick at discharge 0 container 463 and put it at storage area 112
+unload 0 464 45   % pick at discharge 0 container 464 and put it at storage area 45
+unload 0 465 171   % pick at discharge 0 container 465 and put it at storage area 171
+unload 0 466 832   % pick at discharge 0 container 466 and put it at storage area 832
+unload 0 467 538   % pick at discharge 0 container 467 and put it at storage area 538
+unload 0 468 44   % pick at discharge 0 container 468 and put it at storage area 44
+unload 0 469 591   % pick at discharge 0 container 469 and put it at storage area 591
+unload 0 470 416   % pick at discharge 0 container 470 and put it at storage area 416
+unload 0 471 354   % pick at discharge 0 container 471 and put it at storage area 354
+unload 0 472 413   % pick at discharge 0 container 472 and put it at storage area 413
+unload 0 473 294   % pick at discharge 0 container 473 and put it at storage area 294
+unload 0 474 595   % pick at discharge 0 container 474 and put it at storage area 595
+unload 0 475 760   % pick at discharge 0 container 475 and put it at storage area 760
+unload 0 476 536   % pick at discharge 0 container 476 and put it at storage area 536
+unload 0 477 116   % pick at discharge 0 container 477 and put it at storage area 116
+unload 0 478 475   % pick at discharge 0 container 478 and put it at storage area 475
+unload 0 479 532   % pick at discharge 0 container 479 and put it at storage area 532
+unload 0 480 353   % pick at discharge 0 container 480 and put it at storage area 353
+unload 0 481 642   % pick at discharge 0 container 481 and put it at storage area 642
+unload 0 482 836   % pick at discharge 0 container 482 and put it at storage area 836
+unload 0 483 403   % pick at discharge 0 container 483 and put it at storage area 403
+load 0 350   % bring container 350 to discharge 0
+load 0 330   % bring container 330 to discharge 0
+load 0 64   % bring container 64 to discharge 0
+ship 7
+20  % number of operations at the crane for this ship
+unload 0 484 598   % pick at discharge 0 container 484 and put it at storage area 598
+unload 0 485 227   % pick at discharge 0 container 485 and put it at storage area 227
+unload 0 486 287   % pick at discharge 0 container 486 and put it at storage area 287
+unload 0 487 592   % pick at discharge 0 container 487 and put it at storage area 592
+unload 0 488 773   % pick at discharge 0 container 488 and put it at storage area 773
+unload 0 489 526   % pick at discharge 0 container 489 and put it at storage area 526
+load 0 221   % bring container 221 to discharge 0
+load 0 147   % bring container 147 to discharge 0
+load 0 261   % bring container 261 to discharge 0
+load 0 70   % bring container 70 to discharge 0
+load 0 150   % bring container 150 to discharge 0
+load 0 249   % bring container 249 to discharge 0
+load 0 50   % bring container 50 to discharge 0
+load 0 105   % bring container 105 to discharge 0
+load 0 177   % bring container 177 to discharge 0
+load 0 57   % bring container 57 to discharge 0
+load 0 270   % bring container 270 to discharge 0
+load 0 4   % bring container 4 to discharge 0
+load 0 89   % bring container 89 to discharge 0
+load 0 252   % bring container 252 to discharge 0
+ship 8
+15  % number of operations at the crane for this ship
+unload 0 490 52   % pick at discharge 0 container 490 and put it at storage area 52
+unload 0 491 713   % pick at discharge 0 container 491 and put it at storage area 713
+unload 0 492 406   % pick at discharge 0 container 492 and put it at storage area 406
+unload 0 493 656   % pick at discharge 0 container 493 and put it at storage area 656
+unload 0 494 234   % pick at discharge 0 container 494 and put it at storage area 234
+load 0 401   % bring container 401 to discharge 0
+load 0 126   % bring container 126 to discharge 0
+load 0 183   % bring container 183 to discharge 0
+load 0 236   % bring container 236 to discharge 0
+load 0 124   % bring container 124 to discharge 0
+load 0 257   % bring container 257 to discharge 0
+load 0 203   % bring container 203 to discharge 0
+load 0 25   % bring container 25 to discharge 0
+load 0 20   % bring container 20 to discharge 0
+load 0 169   % bring container 169 to discharge 0

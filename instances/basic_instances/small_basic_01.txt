@@ -1,0 +1,97 @@
+111 172
+crane section
+2
+0 30 28 40 34 1 0 33 30
+1 69 28 79 34 1 0 72 30
+storage section
+36
+0 30 90
+1 33 90
+2 36 90
+3 69 90
+4 72 90
+5 75 90
+6 30 94
+7 33 94
+8 36 94
+9 69 94
+10 72 94
+11 75 94
+12 30 98
+13 33 98
+14 36 98
+15 69 98
+16 72 98
+17 75 98
+18 30 132
+19 33 132
+20 36 132
+21 69 132
+22 72 132
+23 75 132
+24 30 136
+25 33 136
+26 36 136
+27 69 136
+28 72 136
+29 75 136
+30 30 140
+31 33 140
+32 36 140
+33 69 140
+34 72 140
+35 75 140
+carrier section
+2
+0 0 35 138
+1 1 74 138
+container section
+18
+0 34
+1 35
+2 2
+3 9
+4 24
+5 1
+6 21
+7 26
+8 10
+9 17
+10 11
+11 22
+12 29
+13 5
+14 18
+15 27
+16 33
+17 8
+demand section
+7  % 7 containers will appear during the day with all operations
+demand crane 0
+2 0 1    % 2 ships coming: ships 0 and 1
+ship 0
+4  % number of operations at the crane for this ship
+unload 0 18 19   % pick at discharge 0 container 18 and put it at storage area 19
+unload 0 19 20   % pick at discharge 0 container 19 and put it at storage area 20
+unload 0 20 30   % pick at discharge 0 container 20 and put it at storage area 30
+load 0 2   % bring container 2 to discharge 0
+ship 1
+4  % number of operations at the crane for this ship
+unload 0 21 7   % pick at discharge 0 container 21 and put it at storage area 7
+load 0 17   % bring container 17 to discharge 0
+load 0 7   % bring container 7 to discharge 0
+load 0 14   % bring container 14 to discharge 0
+demand crane 1
+2 2 3    % 2 ships coming: ships 2 and 3
+ship 2
+4  % number of operations at the crane for this ship
+load 0 10   % bring container 10 to discharge 0
+load 0 11   % bring container 11 to discharge 0
+load 0 0   % bring container 0 to discharge 0
+load 0 1   % bring container 1 to discharge 0
+ship 3
+4  % number of operations at the crane for this ship
+unload 0 22 28   % pick at discharge 0 container 22 and put it at storage area 28
+unload 0 23 15   % pick at discharge 0 container 23 and put it at storage area 15
+unload 0 24 3   % pick at discharge 0 container 24 and put it at storage area 3
+load 0 6   % bring container 6 to discharge 0

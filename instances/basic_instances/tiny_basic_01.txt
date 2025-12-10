@@ -1,0 +1,36 @@
+72 130
+crane section
+1
+0 30 28 40 34 1 0 33 30
+storage section
+9
+0 30 90
+1 33 90
+2 36 90
+3 30 94
+4 33 94
+5 36 94
+6 30 98
+7 33 98
+8 36 98
+carrier section
+1
+0 0 35 96
+container section
+4
+0 6
+1 8
+2 2
+3 7
+demand section
+3  % 3 containers will appear during the day with all operations
+demand crane 0
+2 0 1    % 2 ships coming: ships 0 and 1
+ship 0
+2  % number of operations at the crane for this ship
+unload 0 4 1   % pick at discharge 0 container 4 and put it at storage area 1
+unload 0 5 0   % pick at discharge 0 container 5 and put it at storage area 0
+ship 1
+2  % number of operations at the crane for this ship
+unload 0 6 3   % pick at discharge 0 container 6 and put it at storage area 3
+load 0 1   % bring container 1 to discharge 0

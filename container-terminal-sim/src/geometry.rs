@@ -1,4 +1,4 @@
-use crate::model::*;
+use crate::model::{Instance, Rect, Point, Direction};
 
 pub fn enrich_instance_geometry(inst: &mut Instance) {
     compute_yard_rect(inst);
@@ -6,6 +6,7 @@ pub fn enrich_instance_geometry(inst: &mut Instance) {
     compute_dispatch_staging(inst);
 }
 
+/// Yard = bounding box que cobre todos os storages
 pub fn compute_yard_rect(inst: &mut Instance) {
     if inst.storages.is_empty() {
         inst.yard_rect = None;
@@ -27,25 +28,40 @@ pub fn compute_yard_rect(inst: &mut Instance) {
     inst.yard_rect = Some(Rect { x1, y1, x2, y2 });
 }
 
+/// Staging vertical para cada storage:
+/// carrier 4×8 (vertical) a "estradear" o rect 2×4.
 pub fn compute_storage_staging(inst: &mut Instance) {
     for s in &mut inst.storages {
-        s.staging_bl = Some(Point {
-            x: s.rect.x1 - 2,    // 2 à esquerda
-            y: s.rect.y2,        // logo acima do storage
-        });
-        s.staging_dir = Some(Direction::Up);
+        // storage rect = 2×4: [x1..x1+1] × [y1..y1+3]
+        //
+        // Queremos o carrier 4×8 centrado no storage:
+        //  - em X: estende 1 célula para cada lado → bl.x = x1 - 1
+        //  - em Y: estende 2 para baixo e 2 para cima → bl.y = y1 - 2
+        let bl = Point {
+            x: s.rect.x1 - 1,
+            y: s.rect.y1 - 2,
+        };
+
+        s.staging_bl  = Some(bl);
+        s.staging_dir = Some(Direction::Up); // carrier vertical
     }
 }
 
-
-
+/// Staging horizontal para cada dispatch:
+/// carrier 8×4 (horizontal) centrado no rect 4×2.
 pub fn compute_dispatch_staging(inst: &mut Instance) {
     for d in &mut inst.dispatches {
-        d.staging_bl = Some(Point {
+        // dispatch rect = 4×2: [x1..x1+3] × [y1..y1+1]
+        //
+        // Carrier 8×4 centrado:
+        //  - em X: 2 células para cada lado → bl.x = x1 - 2
+        //  - em Y: 1 para baixo e 1 para cima → bl.y = y1 - 1
+        let bl = Point {
             x: d.rect.x1 - 2,
-            y: d.rect.y1 - 2,
-        });
-        d.staging_dir = Some(Direction::Right);
+            y: d.rect.y1 - 1,
+        };
+
+        d.staging_bl  = Some(bl);
+        d.staging_dir = Some(Direction::Right); // carrier horizontal
     }
 }
-
