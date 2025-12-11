@@ -167,6 +167,14 @@ fn do_load_from_storage(
         panic!("container {} não encontrado na storage {} ao tentar LOAD", container_id, storage_id);
     }
 
+    // Atualizar o mapa de localizações para todos os contentores remanescentes na stack
+    for (depth, &cid) in stack.iter().enumerate() {
+        locs.insert(
+            cid,
+            ContainerLocation::Storage { storage_id, depth },
+        );
+    }
+
     let t = c.time;
     cmds.push(Command::Load { t });
     c.time += 1;

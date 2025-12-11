@@ -17,9 +17,17 @@ fn main() -> anyhow::Result<()> {
     }
 
     // process default toy instances
+    println!("[RUN] processing toy_instance/toy.txt -> solutions/toy/solution_toy1.txt");
     process("../instances/toy_instance/toy.txt", "../solutions/toy/solution_toy1.txt")?;
+    println!("[RUN] done toy_instance/toy.txt");
+
+    println!("[RUN] processing instances/toy_b.txt -> solutions/toy/solution_toyB.txt");
     process("../instances/instances/toy_b.txt", "../solutions/toy/solution_toyB.txt")?;
+    println!("[RUN] done instances/toy_b.txt");
+
+    println!("[RUN] processing instances/toy_c.txt -> solutions/toy/solution_toyC.txt");
     process("../instances/instances/toy_c.txt", "../solutions/toy/solution_toyC.txt")?;
+    println!("[RUN] done instances/toy_c.txt");
 
     Ok(())
 }

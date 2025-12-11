@@ -52,6 +52,10 @@ fn rect_intersects(a: &Rect, b: &Rect) -> bool {
     !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
 }
 
+// verifica se, ao deslocar o `bl.x` passo-a-passo de `from_x` até `to_x` na mesma `bl.y` e
+// com a direcção actual do carrier, o rect do carrier intersecta algum storage
+// (No sweep helpers — use simple pre-rotation sequencing matching original behavior)
+
 fn in_yard(inst: &Instance, bl: Point, dir: Direction) -> bool {
     if let Some(yard) = inst.yard_rect {
         let r = carrier_rect(bl, dir);
