@@ -77,8 +77,25 @@ fn opposite(dir: Direction) -> Direction {
 
 
 
-fn face_to(c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
+fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
     if c.dir == new_dir { return; }
+
+    // Before rotating, ensure the post-rotation rect won't intersect the yard; if so, exit vertically first
+    if let Some(yard) = inst.yard_rect {
+        // simulate rotation about current center
+        let center = center_from_bl(c.bl, c.dir);
+        let bl_after = bl_from_center(center, new_dir);
+        let predicted = carrier_rect(bl_after, new_dir);
+        if rect_intersects(&predicted, &yard) {
+            // move vertically to nearest exit first
+            let up_y = yard.y2 + 1;
+            let down_y = yard.y1 - LONG;
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
+    }
 
     let t = c.time;
     cmds.push(Command::Face { t, dir: new_dir });
@@ -89,11 +106,10 @@ fn face_to(c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
     c.dir = new_dir;
     c.bl  = bl_from_center(center, c.dir);
 
-       println!(
+    println!(
         "% DEBUG face @ t={} -> dir={:?}, bl=({}, {})",
         t, c.dir, c.bl.x, c.bl.y
     );
-
 }
 
 //move em frente ou marcha-atrás, consoante o sinal de `steps`
@@ -125,7 +141,7 @@ fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
 
 
 
-fn move_along_y(c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
+fn move_along_y(inst: &Instance, c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
     let dy = target_y - c.bl.y;
     if dy == 0 { return; }
 
@@ -143,13 +159,13 @@ fn move_along_y(c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
         }
         // Está horizontal → aqui sim é preciso rodar 1x
         _ => {
-            face_to(c, desired_dir, cmds);
+            face_to(inst, c, desired_dir, cmds);
             move_forward(c, steps, cmds);
         }
     }
 }
 
-fn move_along_x(c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
+fn move_along_x(inst: &Instance, c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
     let dx = target_x - c.bl.x;
     if dx == 0 { return; }
 
@@ -167,7 +183,7 @@ fn move_along_x(c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
         }
         // Está vertical → aqui sim tem de rodar
         _ => {
-            face_to(c, desired_dir, cmds);
+            face_to(inst, c, desired_dir, cmds);
             move_forward(c, steps, cmds);
         }
     }
@@ -177,7 +193,7 @@ fn move_along_x(c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
 
 
 fn go_storage_to_dispatch(
-    _inst: &Instance,
+    inst: &Instance,
     c: &mut CarrierState,
     target_bl: Point,
     target_dir: Direction,
@@ -191,13 +207,26 @@ fn go_storage_to_dispatch(
     let bl_before = bl_from_center(desired_center, c.dir);
 
     // 2) mover VERTICALmente até à linha de rotação (mantendo X onde está)
-    move_along_y(c, bl_before.y, cmds);
+    move_along_y(inst, c, bl_before.y, cmds);
 
-    // 3) rodar para a direcção final
-    face_to(c, target_dir, cmds);
+    // 3) Se a rotação for para horizontal e estivermos ainda no yard, sair antes de rodar
+    if (target_dir == Direction::Left || target_dir == Direction::Right) && in_yard(inst, c.bl, c.dir) {
+        if let Some(yard) = inst.yard_rect {
+            // escolher saída vertical mais próxima (para cima ou para baixo)
+            let up_y = yard.y2 + 1; // bl.y just above yard
+            let down_y = yard.y1 - LONG; // bl.y so carrier is below yard
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
+    }
 
-    // 4) agora alinhar X final (se necessário)
-    move_along_x(c, target_bl.x, cmds);
+    // 4) rodar para a direcção final (fora do yard, se necessário)
+    face_to(inst, c, target_dir, cmds);
+
+    // 5) agora alinhar X final (se necessário)
+    move_along_x(inst, c, target_bl.x, cmds);
 }
 
 
@@ -213,13 +242,25 @@ fn go_dispatch_to_storage(
     let bl_before = bl_from_center(desired_center, c.dir);
 
     // 1) alinhar X enquanto ainda estamos fora do yard (pré-rotação)
-    move_along_x(c, bl_before.x, cmds);
+    move_along_x(inst, c, bl_before.x, cmds);
 
-    // 2) rodar para a direção final (Up)
-    face_to(c, target_dir, cmds);
+    // 2) se vamos rodar para horizontal e estivermos no yard, sair verticalmente antes
+    if (target_dir == Direction::Left || target_dir == Direction::Right) && in_yard(inst, c.bl, c.dir) {
+        if let Some(yard) = inst.yard_rect {
+            let up_y = yard.y2 + 1;
+            let down_y = yard.y1 - LONG;
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
+    }
 
-    // 3) agora entrar no yard movendo verticalmente até ao target_bl.y
-    move_along_y(c, target_bl.y, cmds);
+    // 3) rodar para a direção final (fora do yard se requerido)
+    face_to(inst, c, target_dir, cmds);
+
+    // 4) agora entrar no yard movendo verticalmente até ao target_bl.y
+    move_along_y(inst, c, target_bl.y, cmds);
 }
 
 
@@ -234,9 +275,9 @@ pub fn go_to_pose(
 
     // se por algum motivo não houver yard_rect, faz Manhattan simples
     if yard_opt.is_none() {
-        move_along_x(c, target_bl.x, cmds);
-        move_along_y(c, target_bl.y, cmds);
-        face_to(c, target_dir, cmds);
+        move_along_x(inst, c, target_bl.x, cmds);
+        move_along_y(inst, c, target_bl.y, cmds);
+        face_to(inst, c, target_dir, cmds);
         return;
     }
 
@@ -256,7 +297,39 @@ pub fn go_to_pose(
     }
 
     // 3) Caso genérico (ambos fora, ou ambos dentro sem regra especial):
-    move_along_x(c, target_bl.x, cmds);
-    move_along_y(c, target_bl.y, cmds);
-    face_to(c, target_dir, cmds);
+    move_along_x(inst, c, target_bl.x, cmds);
+    move_along_y(inst, c, target_bl.y, cmds);
+    // Before rotating, ensure the rotation won't make the carrier intersect the yard
+    // If we're vertical inside the yard and need to rotate to horizontal,
+    // force a vertical exit first (strict rule to avoid any horizontal pose inside yard).
+    if (target_dir == Direction::Left || target_dir == Direction::Right)
+        && (c.dir == Direction::Up || c.dir == Direction::Down)
+        && in_yard(inst, c.bl, c.dir)
+    {
+        if let Some(yard) = yard_opt {
+            let up_y = yard.y2 + 1;
+            let down_y = yard.y1 - LONG;
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
+    }
+
+    if let Some(yard) = yard_opt {
+        // simulate the actual post-rotation BL using current rotation center
+        let center = center_from_bl(c.bl, c.dir);
+        let bl_after = bl_from_center(center, target_dir);
+        let predicted = carrier_rect(bl_after, target_dir);
+        if rect_intersects(&predicted, &yard) {
+            // choose nearest vertical exit and move there before rotating
+            let up_y = yard.y2 + 1;
+            let down_y = yard.y1 - LONG;
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
+    }
+    face_to(inst, c, target_dir, cmds);
 }
