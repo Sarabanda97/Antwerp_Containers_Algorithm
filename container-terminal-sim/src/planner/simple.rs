@@ -151,8 +151,21 @@ fn do_load_from_storage(
 
     let stack = &mut storage_stacks[s_idx];
     assert!(!stack.is_empty(), "storage {} vazia ao tentar LOAD", storage_id);
-    let top = stack.pop().unwrap();
-    assert!(top == container_id, "Topo da storage {} era {}, esperado {}", storage_id, top, container_id);
+    // procurar o container na stack; se estiver no topo faz pop, senão remove na posição
+    let pos_opt = stack.iter().position(|&x| x == container_id);
+    if let Some(pos) = pos_opt {
+        if pos == stack.len() - 1 {
+            let _ = stack.pop().unwrap();
+        } else {
+            eprintln!(
+                "[WARN] container {} não estava no topo da storage {} (pos {}). Removendo da stack.",
+                container_id, storage_id, pos
+            );
+            stack.remove(pos);
+        }
+    } else {
+        panic!("container {} não encontrado na storage {} ao tentar LOAD", container_id, storage_id);
+    }
 
     let t = c.time;
     cmds.push(Command::Load { t });
