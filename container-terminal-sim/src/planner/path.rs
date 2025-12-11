@@ -129,16 +129,16 @@ fn move_along_y(c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
     let steps = dy.abs();
 
     match c.dir {
+        // Já está virado para o lado certo → anda para a frente
         d if d == desired_dir => {
-            // já virado para o lado certo → forward
             move_forward(c, steps, cmds);
         }
+        // Está virado ao contrário → anda para trás (k negativo)
         d if d == opposite(desired_dir) => {
-            // virado ao contrário → marcha-atrás
             move_forward(c, -(steps), cmds);
         }
+        // Está horizontal → aqui sim é preciso rodar 1x
         _ => {
-            // horizontal → roda para a direcção desejada e anda para a frente
             face_to(c, desired_dir, cmds);
             move_forward(c, steps, cmds);
         }
@@ -153,18 +153,22 @@ fn move_along_x(c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
     let steps = dx.abs();
 
     match c.dir {
+        // Já está virado para o lado certo → anda para a frente
         d if d == desired_dir => {
             move_forward(c, steps, cmds);
         }
+        // Está virado ao contrário → anda para trás (k negativo)
         d if d == opposite(desired_dir) => {
             move_forward(c, -(steps), cmds);
         }
+        // Está vertical → aqui sim tem de rodar
         _ => {
             face_to(c, desired_dir, cmds);
             move_forward(c, steps, cmds);
         }
     }
 }
+
 
 
 
@@ -176,13 +180,20 @@ fn go_storage_to_dispatch(
     cmds: &mut Vec<Command>,
 ) {
     // 1) Storage (no yard) → alinhar Y com a dispatch (sempre vertical)
-    move_along_y(c, target_bl.y, cmds);
+    // 1) Storage (no yard) → queremos girar SÓ depois da componente vertical terminar.
+    // Calcular a posição `bl_before` onde o carrier deve estar (na sua orientação actual)
+    // de modo que, após a rotação com centro fixo, o `bl` final seja `target_bl`.
+    let desired_center = center_from_bl(target_bl, target_dir);
+    let bl_before = bl_from_center(desired_center, c.dir);
 
-    // 2) já fora do yard → alinhar X com o staging da dispatch
-    move_along_x(c, target_bl.x, cmds);
+    // 2) mover VERTICALmente até à linha de rotação (mantendo X onde está)
+    move_along_y(c, bl_before.y, cmds);
 
-    // 3) garantir direção final (Right normalmente)
+    // 3) rodar para a direcção final
     face_to(c, target_dir, cmds);
+
+    // 4) agora alinhar X final (se necessário)
+    move_along_x(c, target_bl.x, cmds);
 }
 
 
@@ -193,17 +204,18 @@ fn go_dispatch_to_storage(
     target_dir: Direction,
     cmds: &mut Vec<Command>,
 ) {
-    let yard = inst.yard_rect.expect("yard_rect esperado");
+    // Calcular a posição pré-rotação (bl_before) para que, após girar, o bl final seja target_bl
+    let desired_center = center_from_bl(target_bl, target_dir);
+    let bl_before = bl_from_center(desired_center, c.dir);
 
-    // 1) Despacho está cá em baixo (y ≈ 5), fora do yard.
-    //    Primeiro alinhar X com o staging da storage enquanto ainda estamos abaixo do yard:
-    move_along_x(c, target_bl.x, cmds); // horizontal FORA do yard
+    // 1) alinhar X enquanto ainda estamos fora do yard (pré-rotação)
+    move_along_x(c, bl_before.x, cmds);
 
-    // 2) Agora subir em Y até à staging do storage (entrando no yard só em vertical):
-    move_along_y(c, target_bl.y, cmds); // só vertical dentro do yard
-
-    // 3) Garantir orientação final (Up)
+    // 2) rodar para a direção final (Up)
     face_to(c, target_dir, cmds);
+
+    // 3) agora entrar no yard movendo verticalmente até ao target_bl.y
+    move_along_y(c, target_bl.y, cmds);
 }
 
 

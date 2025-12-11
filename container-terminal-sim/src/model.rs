@@ -1,6 +1,6 @@
 pub type Id = i32;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Point { pub x: i32, pub y: i32 }
 
 #[derive(Clone, Copy)]
