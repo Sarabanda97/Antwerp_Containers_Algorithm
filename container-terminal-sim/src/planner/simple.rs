@@ -854,5 +854,40 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
         }
     }
 
+    // Compacta movimentos redundantes antes de devolver
+    let cmds = compact_moves(cmds);
     cmds
+}
+
+// Compacta movimentos consecutivos no plano (merge de `Move`) para evitar idas-e-voltas
+fn compact_moves(cmds: Vec<Command>) -> Vec<Command> {
+    let mut out: Vec<Command> = Vec::new();
+    let mut pending_move: Option<(i32, i32)> = None; // (t, k)
+
+    let mut flush_move = |out: &mut Vec<Command>, pending: &mut Option<(i32, i32)>| {
+        if let Some((t, k)) = pending.take() {
+            if k != 0 {
+                out.push(Command::Move { t, k });
+            }
+        }
+    };
+
+    for cmd in cmds.into_iter() {
+        match cmd {
+            Command::Move { t, k } => {
+                if let Some((pt, pk)) = pending_move {
+                    // acumula movimento contínuo
+                    pending_move = Some((pt, pk + k));
+                } else {
+                    pending_move = Some((t, k));
+                }
+            }
+            other => {
+                flush_move(&mut out, &mut pending_move);
+                out.push(other);
+            }
+        }
+    }
+    flush_move(&mut out, &mut pending_move);
+    out
 }
