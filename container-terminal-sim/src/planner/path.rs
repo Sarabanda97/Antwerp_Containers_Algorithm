@@ -79,14 +79,24 @@ fn opposite(dir: Direction) -> Direction {
 
 fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
     if c.dir == new_dir { return; }
-
-    // Before rotating, ensure the post-rotation rect won't intersect the yard; if so, exit vertically first
+    // Before rotating, ensure the post-rotation rect won't intersect the yard or any storage;
+    // if so, exit vertically first
     if let Some(yard) = inst.yard_rect {
         // simulate rotation about current center
         let center = center_from_bl(c.bl, c.dir);
         let bl_after = bl_from_center(center, new_dir);
         let predicted = carrier_rect(bl_after, new_dir);
-        if rect_intersects(&predicted, &yard) {
+
+        // Helper: check intersection with any storage rect (more precise than only checking yard)
+        let mut intersects_storage = false;
+        for s in &inst.storages {
+            if rect_intersects(&predicted, &s.rect) {
+                intersects_storage = true;
+                break;
+            }
+        }
+
+        if rect_intersects(&predicted, &yard) || intersects_storage {
             // move vertically to nearest exit first
             let up_y = yard.y2 + 1;
             let down_y = yard.y1 - LONG;
@@ -321,7 +331,16 @@ pub fn go_to_pose(
         let center = center_from_bl(c.bl, c.dir);
         let bl_after = bl_from_center(center, target_dir);
         let predicted = carrier_rect(bl_after, target_dir);
-        if rect_intersects(&predicted, &yard) {
+        // also check if the predicted rect would overlap any storage rect specifically
+        let mut intersects_storage = false;
+        for s in &inst.storages {
+            if rect_intersects(&predicted, &s.rect) {
+                intersects_storage = true;
+                break;
+            }
+        }
+
+        if rect_intersects(&predicted, &yard) || intersects_storage {
             // choose nearest vertical exit and move there before rotating
             let up_y = yard.y2 + 1;
             let down_y = yard.y1 - LONG;

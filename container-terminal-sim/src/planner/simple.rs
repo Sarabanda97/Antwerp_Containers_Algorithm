@@ -347,20 +347,7 @@ fn do_unload_to_storage(
         ContainerLocation::Storage { storage_id, depth },
     );
 
-    // After unloading into a storage, prefer to exit the yard vertically so subsequent
-    // rotations (horizontal) happen outside the storage area.
-    if let Some(yard) = inst.yard_rect {
-        // If we're still intersecting the yard, move to the nearest vertical exit
-        let r = carrier_rect_local(c.bl, c.dir);
-        if rects_intersect_local(&r, &yard) {
-            let up_y = yard.y2 + 1;
-            let down_y = yard.y1 - LONG_LOCAL;
-            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
-            let exit_bl = crate::model::Point { x: c.bl.x, y: exit_y };
-            // move the carrier to the exit (keeps current desired dir)
-            crate::planner::path::go_to_pose(inst, c, exit_bl, c.dir, cmds);
-        }
-    }
+    
 }
 
 // Helper: unload para dispatch (para o caso de LOAD d c → ship)
@@ -855,16 +842,15 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
     }
 
     // Compacta movimentos redundantes antes de devolver
-    let cmds = compact_moves(cmds);
+    
     cmds
 }
 
-// Compacta movimentos consecutivos no plano (merge de `Move`) para evitar idas-e-voltas
 fn compact_moves(cmds: Vec<Command>) -> Vec<Command> {
     let mut out: Vec<Command> = Vec::new();
-    let mut pending_move: Option<(i32, i32)> = None; // (t, k)
+    let mut pending: Option<(i32, i32)> = None; // (t_start, k)
 
-    let mut flush_move = |out: &mut Vec<Command>, pending: &mut Option<(i32, i32)>| {
+    let mut flush = |out: &mut Vec<Command>, pending: &mut Option<(i32, i32)>| {
         if let Some((t, k)) = pending.take() {
             if k != 0 {
                 out.push(Command::Move { t, k });
@@ -872,22 +858,32 @@ fn compact_moves(cmds: Vec<Command>) -> Vec<Command> {
         }
     };
 
-    for cmd in cmds.into_iter() {
+    for cmd in cmds {
         match cmd {
             Command::Move { t, k } => {
-                if let Some((pt, pk)) = pending_move {
-                    // acumula movimento contínuo
-                    pending_move = Some((pt, pk + k));
+                if let Some((pt, pk)) = pending {
+                    let pk_end = pt + pk.abs();
+
+                    // Só merge se for exatamente contínuo no tempo
+                    // e se não houver cancelamento (mesmo sinal)
+                    if pk_end == t && pk.signum() == k.signum() {
+                        pending = Some((pt, pk + k));
+                    } else {
+                        flush(&mut out, &mut pending);
+                        pending = Some((t, k));
+                    }
                 } else {
-                    pending_move = Some((t, k));
+                    pending = Some((t, k));
                 }
             }
             other => {
-                flush_move(&mut out, &mut pending_move);
+                flush(&mut out, &mut pending);
                 out.push(other);
             }
         }
     }
-    flush_move(&mut out, &mut pending_move);
+
+    flush(&mut out, &mut pending);
     out
 }
+
