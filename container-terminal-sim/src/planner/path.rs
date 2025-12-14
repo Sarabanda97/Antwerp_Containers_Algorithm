@@ -29,6 +29,7 @@ fn bl_from_center(center: Point, dir: Direction) -> Point {
     Point { x: center.x - w / 2, y: center.y - h / 2 }
 }
 
+// rect do carrier dado (bl, dir) – inclusivo
 fn carrier_rect(bl: Point, dir: Direction) -> Rect {
     let (w, h) = dims(dir);
     Rect { x1: bl.x, y1: bl.y, x2: bl.x + w - 1, y2: bl.y + h - 1 }
@@ -54,6 +55,7 @@ fn in_yard(inst: &Instance, bl: Point, dir: Direction) -> bool {
     }
 }
 
+// Pequena ajuda para detectar a direcção oposta (para marcha-atrás)
 fn opposite(dir: Direction) -> Direction {
     match dir {
         Direction::Up    => Direction::Down,
@@ -80,11 +82,6 @@ fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
 
     c.bl.x += dx * steps;
     c.bl.y += dy * steps;
-
-    println!(
-        "% DEBUG move @ t={}..{} k={} dir={:?} -> bl=({}, {})",
-        t_start, t_end, steps, c.dir, c.bl.x, c.bl.y
-    );
 }
 
 fn move_along_y(inst: &Instance, c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
@@ -95,12 +92,8 @@ fn move_along_y(inst: &Instance, c: &mut CarrierState, target_y: i32, cmds: &mut
     let steps = dy.abs();
 
     match c.dir {
-        d if d == desired_dir => {
-            move_forward(c, steps, cmds);
-        }
-        d if d == opposite(desired_dir) => {
-            move_forward(c, -(steps), cmds);
-        }
+        d if d == desired_dir => move_forward(c, steps, cmds),
+        d if d == opposite(desired_dir) => move_forward(c, -steps, cmds),
         _ => {
             face_to(inst, c, desired_dir, cmds);
             move_forward(c, steps, cmds);
@@ -116,12 +109,8 @@ fn move_along_x(inst: &Instance, c: &mut CarrierState, target_x: i32, cmds: &mut
     let steps = dx.abs();
 
     match c.dir {
-        d if d == desired_dir => {
-            move_forward(c, steps, cmds);
-        }
-        d if d == opposite(desired_dir) => {
-            move_forward(c, -(steps), cmds);
-        }
+        d if d == desired_dir => move_forward(c, steps, cmds),
+        d if d == opposite(desired_dir) => move_forward(c, -steps, cmds),
         _ => {
             face_to(inst, c, desired_dir, cmds);
             move_forward(c, steps, cmds);
@@ -130,13 +119,11 @@ fn move_along_x(inst: &Instance, c: &mut CarrierState, target_x: i32, cmds: &mut
 }
 
 fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
-    let dir = c.dir;
-    if dir == new_dir { return; }
+    if c.dir == new_dir { return; }
 
-    // Só faz “pre-escape” se a rotação muda footprint (4×8 <-> 8×4)
     let changes_footprint =
-        (is_vertical(dir) && is_horizontal(new_dir)) ||
-        (is_horizontal(dir) && is_vertical(new_dir));
+        (is_vertical(c.dir) && is_horizontal(new_dir)) ||
+        (is_horizontal(c.dir) && is_vertical(new_dir));
 
     if changes_footprint {
         if let Some(yard) = inst.yard_rect {
@@ -144,7 +131,7 @@ fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut
             let bl_after = bl_from_center(center, new_dir);
             let predicted = carrier_rect(bl_after, new_dir);
 
-            // ✅ Storages só são obstáculo quando o resultado é HORIZONTAL
+            // storages só contam como obstáculo quando o resultado é HORIZONTAL
             let mut intersects_storage = false;
             if is_horizontal(new_dir) {
                 for s in &inst.storages {
@@ -187,7 +174,6 @@ fn go_storage_to_dispatch(
 
     move_along_y(inst, c, bl_before.y, cmds);
 
-    // Se vamos ficar horizontal e ainda estamos no yard, sair antes de rodar
     if is_horizontal(target_dir) && in_yard(inst, c.bl, c.dir) {
         if let Some(yard) = inst.yard_rect {
             let up_y = yard.y2 + 1;
@@ -201,7 +187,6 @@ fn go_storage_to_dispatch(
 
     face_to(inst, c, target_dir, cmds);
     move_along_x(inst, c, target_bl.x, cmds);
-    return;
 }
 
 fn go_dispatch_to_storage(
@@ -229,7 +214,6 @@ fn go_dispatch_to_storage(
 
     face_to(inst, c, target_dir, cmds);
     move_along_y(inst, c, target_bl.y, cmds);
-    return;
 }
 
 pub fn go_to_pose(
@@ -241,7 +225,7 @@ pub fn go_to_pose(
 ) {
     let yard_opt = inst.yard_rect;
 
-    // Sem yard_rect => Manhattan simples
+    // sem yard => Manhattan simples
     if yard_opt.is_none() {
         move_along_x(inst, c, target_bl.x, cmds);
         move_along_y(inst, c, target_bl.y, cmds);
@@ -252,25 +236,23 @@ pub fn go_to_pose(
     let start_in_yard  = in_yard(inst, c.bl, c.dir);
     let target_in_yard = in_yard(inst, target_bl, target_dir);
 
-    // STORAGE -> DISPATCH
+    // STORAGE (dentro) -> DISPATCH (fora)
     if start_in_yard && !target_in_yard {
         go_storage_to_dispatch(inst, c, target_bl, target_dir, cmds);
-        face_to(inst, c, target_dir, cmds);
         return;
     }
 
-    // DISPATCH -> STORAGE
+    // DISPATCH (fora) -> STORAGE (dentro)
     if !start_in_yard && target_in_yard {
         go_dispatch_to_storage(inst, c, target_bl, target_dir, cmds);
-        face_to(inst, c, target_dir, cmds);
         return;
     }
 
-    // Caso genérico
+    // caso genérico
     move_along_x(inst, c, target_bl.x, cmds);
     move_along_y(inst, c, target_bl.y, cmds);
 
-    // Se estamos no yard e queremos ficar horizontal, sair antes
+    // nunca ficar horizontal dentro do yard: sair verticalmente primeiro
     if is_horizontal(target_dir) && is_vertical(c.dir) && in_yard(inst, c.bl, c.dir) {
         if let Some(yard) = yard_opt {
             let up_y = yard.y2 + 1;
@@ -282,39 +264,6 @@ pub fn go_to_pose(
         }
     }
 
-    // Só faz pre-check se a rotação muda footprint
-    let changes_footprint =
-        (is_vertical(c.dir) && is_horizontal(target_dir)) ||
-        (is_horizontal(c.dir) && is_vertical(target_dir));
-
-    if changes_footprint {
-        if let Some(yard) = yard_opt {
-            let center = center_from_bl(c.bl, c.dir);
-            let bl_after = bl_from_center(center, target_dir);
-            let predicted = carrier_rect(bl_after, target_dir);
-
-            // ✅ Storages só contam como obstáculo quando o resultado é HORIZONTAL
-            let mut intersects_storage = false;
-            if is_horizontal(target_dir) {
-                for s in &inst.storages {
-                    if rect_intersects(&predicted, &s.rect) {
-                        intersects_storage = true;
-                        break;
-                    }
-                }
-            }
-
-            if rect_intersects(&predicted, &yard) || intersects_storage {
-                let up_y = yard.y2 + 1;
-                let down_y = yard.y1 - LONG;
-                let dist_up = (c.bl.y - up_y).abs();
-                let dist_down = (c.bl.y - down_y).abs();
-                let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-                move_along_y(inst, c, exit_y, cmds);
-            }
-        }
-    }
-
-    // ✅ Garantir orientação final pedida (porque move_along_* pode usar marcha-atrás)
+    // garantir orientação final
     face_to(inst, c, target_dir, cmds);
 }

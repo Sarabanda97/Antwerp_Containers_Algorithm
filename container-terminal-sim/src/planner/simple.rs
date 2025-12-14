@@ -330,12 +330,8 @@ fn do_unload_to_storage(
     c.carrying = None;
 
     let stack = &mut storage_stacks[s_idx];
-    if stack.len() >= 2 {
-        eprintln!(
-            "[WARN] Storage {} já com 2 contentores, a empilhar mesmo assim.",
-            storage_id
-        );
-    }
+    // Enforce capacity 2: do not allow unloading into a full storage
+    assert!(stack.len() < 2, "Tentativa de UNLOAD na storage {} que já está cheia (capacidade 2)", storage_id);
     stack.push(container_id);
     let depth = stack.len() - 1;
 
