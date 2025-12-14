@@ -252,11 +252,8 @@ fn do_load_from_storage(
 
     // reforçar posicionamento com go_to_pose para evitar pequenos desalinhamentos
     go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-    // reforçar posicionamento com movimentos corretivos caso ainda haja desalinhamento
-    if c.bl != expected_bl || c.dir != expected_dir {
-        // tentativa corretiva adicional via go_to_pose
-        go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-    }
+    
+    
 
     assert!(c.bl == expected_bl, "Carrier não está no staging da storage {}", storage_id);
     assert!(c.dir == expected_dir, "Carrier não está virado para staging da storage {}", storage_id);
@@ -316,9 +313,9 @@ fn do_unload_to_storage(
     let expected_dir = stor.staging_dir.expect("storage sem staging_dir");
     // reinforce positioning similarly to do_load_from_storage: try twice to correct small misalignments
     go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-    if c.bl != expected_bl || c.dir != expected_dir {
-        go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-    }
+   
+        
+    
 
     // pré-condição: carrier carrega o container
     assert!(c.carrying.is_some(), "Carrier não carrega nada ao tentar UNLOAD para storage {}", storage_id);
