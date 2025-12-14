@@ -95,19 +95,35 @@ fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut
         let cur = carrier_rect(c.bl, c.dir);
         let mut max_y2 = i32::MIN;
         let mut min_y1 = i32::MAX;
+        let mut max_x2 = i32::MIN;
+        let mut min_x1 = i32::MAX;
         for s in &inst.storages {
             if rect_intersects(&cur, &s.rect) {
                 max_y2 = max_y2.max(s.rect.y2);
                 min_y1 = min_y1.min(s.rect.y1);
+                max_x2 = max_x2.max(s.rect.x2);
+                min_x1 = min_x1.min(s.rect.x1);
             }
         }
-        // Move just above or fully below the blocking storages.
-        let up_y = max_y2 + 1;
-        let down_y = min_y1 - LONG;
-        let dist_up = (c.bl.y - up_y).abs();
-        let dist_down = (c.bl.y - down_y).abs();
-        let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-        move_along_y(inst, c, exit_y, cmds);
+
+        // Escolhe eixo para sair com base na orientação atual: se estamos horizontais,
+        // mover ao longo de X evita que `move_along_y` tente rodar e provoque recursão
+        if is_horizontal(c.dir) {
+            let left_x = min_x1 - LONG;
+            let right_x = max_x2 + 1;
+            let dist_left = (c.bl.x - left_x).abs();
+            let dist_right = (c.bl.x - right_x).abs();
+            let exit_x = if dist_left <= dist_right { left_x } else { right_x };
+            move_along_x(inst, c, exit_x, cmds);
+        } else {
+            // Move just above or fully below the blocking storages.
+            let up_y = max_y2 + 1;
+            let down_y = min_y1 - LONG;
+            let dist_up = (c.bl.y - up_y).abs();
+            let dist_down = (c.bl.y - down_y).abs();
+            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            move_along_y(inst, c, exit_y, cmds);
+        }
     }
 
     let dir = c.dir;
@@ -134,12 +150,31 @@ fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut
             }
 
             if rect_intersects(&predicted, &yard) || intersects_storage {
-                let up_y = yard.y2 + 1;
-                let down_y = yard.y1 - LONG;
-                let dist_up = (c.bl.y - up_y).abs();
-                let dist_down = (c.bl.y - down_y).abs();
-                let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-                move_along_y(inst, c, exit_y, cmds);
+                // Mesmo método: sair preferencialmente pelo eixo em que estamos orientados.
+                if is_horizontal(c.dir) {
+                    let mut min_x1 = i32::MAX;
+                    let mut max_x2 = i32::MIN;
+                    let cur = carrier_rect(c.bl, c.dir);
+                    for s in &inst.storages {
+                        if rect_intersects(&cur, &s.rect) {
+                            min_x1 = min_x1.min(s.rect.x1);
+                            max_x2 = max_x2.max(s.rect.x2);
+                        }
+                    }
+                    let left_x = min_x1 - LONG;
+                    let right_x = max_x2 + 1;
+                    let dist_left = (c.bl.x - left_x).abs();
+                    let dist_right = (c.bl.x - right_x).abs();
+                    let exit_x = if dist_left <= dist_right { left_x } else { right_x };
+                    move_along_x(inst, c, exit_x, cmds);
+                } else {
+                    let up_y = yard.y2 + 1;
+                    let down_y = yard.y1 - LONG;
+                    let dist_up = (c.bl.y - up_y).abs();
+                    let dist_down = (c.bl.y - down_y).abs();
+                    let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+                    move_along_y(inst, c, exit_y, cmds);
+                }
             }
         }
     }

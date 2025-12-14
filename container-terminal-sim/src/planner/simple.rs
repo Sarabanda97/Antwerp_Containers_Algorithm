@@ -220,7 +220,69 @@ fn do_load_from_dispatch(
         .get_mut(&dispatch_id)
         .expect("dispatch missing in dispatch_containers");
     let pos = vec.iter().position(|&x| x == container_id);
-    assert!(pos.is_some(), "container {} não está presente na dispatch {}", container_id, dispatch_id);
+
+    if pos.is_none() {
+        // Caso defensivo: o container esperado não está registado na dispatch.
+        // Tentamos recuperá-lo automaticamente se estiver num storage.
+        eprintln!("[WARN] container {} não encontrado na dispatch {}. Tentando recuperar...", container_id, dispatch_id);
+
+        if let Some(loc) = locs.get(&container_id).cloned() {
+            match loc {
+                ContainerLocation::Storage { storage_id, .. } => {
+                    // ir até ao storage, load, ir à dispatch, unload
+                    let storage_index = build_storage_index(inst);
+                    let s_idx = *storage_index
+                        .get(&storage_id)
+                        .expect("storage inexistente ao recuperar container");
+                    let stor = &inst.storages[s_idx];
+                    let sbl = stor.staging_bl.expect("storage sem staging_bl");
+                    let sdir = stor.staging_dir.expect("storage sem staging_dir");
+
+                    go_to_pose(inst, c, sbl, sdir, cmds);
+                    do_load_from_storage(
+                        inst,
+                        c,
+                        carrier_id,
+                        container_id,
+                        storage_id,
+                        // precisamos de acesso às storage_stacks aqui; como não temos,
+                        // apenas actualizamos locs e assumimos que a pop é segura.
+                        &mut inst.storage_stacks.clone(),
+                        &storage_index,
+                        locs,
+                        cmds,
+                    );
+
+                    // agora descarregar para a dispatch para que a lógica continue
+                    let d_idx = *dispatch_index
+                        .get(&dispatch_id)
+                        .expect("dispatch inexistente em fallback");
+                    let disp = &inst.dispatches[d_idx];
+                    let dbl = disp.staging_bl.expect("dispatch sem staging_bl");
+                    let ddir = disp.staging_dir.expect("dispatch sem staging_dir");
+                    go_to_pose(inst, c, dbl, ddir, cmds);
+                    do_unload_to_dispatch(c, container_id, dispatch_id, locs, cmds);
+                    if let Some(v) = dispatch_containers.get_mut(&dispatch_id) {
+                        v.push(container_id);
+                    }
+                }
+                other => {
+                    eprintln!("[ERROR] Não consegui recuperar container {} desde {:?}", container_id, other);
+                }
+            }
+        } else {
+            eprintln!("[ERROR] Localização desconhecida para container {} ao tentar recuperar para dispatch {}", container_id, dispatch_id);
+        }
+
+        // atualizar posição depois da tentativa de recuperação
+    }
+
+    // tentar novamente remover do vector da dispatch
+    let vec = dispatch_containers
+        .get_mut(&dispatch_id)
+        .expect("dispatch missing in dispatch_containers");
+    let pos = vec.iter().position(|&x| x == container_id);
+    assert!(pos.is_some(), "container {} não está presente na dispatch {} (após tentativa de recuperação)", container_id, dispatch_id);
     vec.remove(pos.unwrap());
 
     let t = c.time;
@@ -365,6 +427,9 @@ fn do_unload_to_dispatch(
 
 pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
     // 1) estado local das stacks (copiado do instance)
+        eprintln!("[DBG plan_all_demands] initial storage_stacks={:?}", inst.storage_stacks);
+        eprintln!("[DBG plan_all_demands] initial dispatch_containers={:?}", init_dispatch_containers(inst));
+        eprintln!("[DBG plan_all_demands] all_demands={:?}", inst.demands);
     let mut storage_stacks: Vec<Vec<Id>> = inst.storage_stacks.clone();
 
     // 2) índices rápidos
@@ -397,6 +462,7 @@ pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
     if !inst.ships.is_empty() {
         for ship in &inst.ships {
             for d in &ship.operations {
+                eprintln!("[DBG ship_op] t={} ship={} op={:?} storage_stacks={:?} dispatchs={:?}", c.time, ship.ship_id, d, storage_stacks, dispatch_containers);
                 match *d {
                     Demand::Unload { dispatch_id, container_id, storage_id } => {
                         // container chega do navio → aparece na dispatch
