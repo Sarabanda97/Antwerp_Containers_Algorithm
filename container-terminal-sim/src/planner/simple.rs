@@ -1,948 +1,454 @@
-use std::collections::HashMap;
-use crate::model::{Id, Instance, Demand, Point, Rect, Direction};
+use std::collections::{HashMap, HashSet};
+
+use crate::model::{Demand, Direction, Id, Instance, Point, Rect};
 use crate::planner::path::{go_to_pose, Command};
 use crate::state::CarrierState;
 
 #[derive(Clone, Debug)]
 enum ContainerLocation {
-    Storage  { storage_id: Id, depth: usize },
+    Storage { storage_id: Id, depth: usize },
     Dispatch { dispatch_id: Id },
     OnCarrier { carrier_id: Id },
 }
 
-type ContainerMap = HashMap<Id, ContainerLocation>;
+// Debug: IDs to trace closely (adjust as needed)
+const DEBUG_CIDS: &[Id] = &[6, 3];
 
-const SHORT_LOCAL: i32 = 4;
-const LONG_LOCAL: i32 = 8;
+struct PlanningContext<'a> {
+    inst: &'a Instance,
+    c: &'a mut CarrierState,
+    cmds: &'a mut Vec<Command>,
 
-fn dims_local(dir: Direction) -> (i32, i32) {
-    match dir {
-        Direction::Up | Direction::Down => (SHORT_LOCAL, LONG_LOCAL),
-        Direction::Left | Direction::Right => (LONG_LOCAL, SHORT_LOCAL),
-    }
+    storage_stacks: &'a mut Vec<Vec<Id>>,
+    locs: &'a mut HashMap<Id, ContainerLocation>,
+    dispatch_containers: &'a mut HashMap<Id, Vec<Id>>,
+
+    storage_idx: &'a HashMap<Id, usize>,
+    dispatch_idx: &'a HashMap<Id, usize>,
+
+    // Containers placed by ship unloads (prefer not to disturb, but we allow temporarily if needed)
+    protected: &'a mut HashSet<Id>,
+
+    // cid -> “home storage” (where it should end up)
+    final_dest: &'a mut HashMap<Id, Id>,
 }
 
-fn carrier_rect_local(bl: Point, dir: Direction) -> Rect {
-    let (w, h) = dims_local(dir);
-    Rect { x1: bl.x, y1: bl.y, x2: bl.x + w - 1, y2: bl.y + h - 1 }
-}
-
-fn rects_intersect_local(a: &Rect, b: &Rect) -> bool {
-    !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
-}
-
-// Encontra índice de storage temporária para reempilhamento (exclui o storage de origem quando possível)
-fn find_temp_storage_index(storage_stacks: &Vec<Vec<Id>>, exclude_idx: usize) -> usize {
-    // Prefer a storage with free capacity (<2). If multiple, choose the one with smallest height.
-    let mut best_free: Option<usize> = None;
-    for (i, s) in storage_stacks.iter().enumerate() {
-        if i == exclude_idx { continue; }
-        if s.len() < 2 {
-            if best_free.is_none() || s.len() < storage_stacks[best_free.unwrap()].len() {
-                best_free = Some(i);
-            }
-        }
-    }
-    if let Some(idx) = best_free { return idx; }
-
-    // Fallback: no free storage found — choose the one with minimum height (excluding original)
-    let mut best: Option<usize> = None;
-    for (i, s) in storage_stacks.iter().enumerate() {
-        if i == exclude_idx { continue; }
-        if best.is_none() || s.len() < storage_stacks[best.unwrap()].len() {
-            best = Some(i);
-        }
-    }
-    if let Some(idx) = best { idx } else { exclude_idx }
-}
-
-// Reempilha containers que estão acima de `container_id` na storage `storage_id` para storages temporárias.
-// Retorna um vector com pares (container_id, original_storage_id, temp_storage_id) na ordem em que foram movidos.
-fn restack_blocking_containers(
-    inst: &Instance,
-    c: &mut CarrierState,
-    carrier_id: Id,
-    container_id: Id,
-    storage_id: Id,
-    storage_stacks: &mut Vec<Vec<Id>>,
-    storage_index: &HashMap<Id, usize>,
-    locs: &mut ContainerMap,
-    cmds: &mut Vec<Command>,
-) -> Vec<(Id, Id, Id)> {
-    let mut moved: Vec<(Id, Id, Id)> = Vec::new();
-    let s_idx = *storage_index
-        .get(&storage_id)
-        .expect("storage inexistente em restack_blocking_containers");
-
-    // enquanto o container alvo não estiver no topo da stack, mover o topo para outro storage
-    while storage_stacks[s_idx].last() != Some(&container_id) {
-        let top_cid = *storage_stacks[s_idx]
-            .last()
-            .expect("esperava top container durante reempilhamento");
-
-        // 1) ir para staging da storage original
-        let stor = &inst.storages[s_idx];
-        let sbl = stor.staging_bl.expect("storage sem staging_bl");
-        let sdir = stor.staging_dir.expect("storage sem staging_dir");
-        go_to_pose(inst, c, sbl, sdir, cmds);
-
-        // 2) load do topo
-        do_load_from_storage(
-            inst,
-            c,
-            carrier_id,
-            top_cid,
-            storage_id,
-            storage_stacks,
-            storage_index,
-            locs,
-            cmds,
-        );
-
-        // 3) escolher storage temporária com menor altura
-        let temp_idx = find_temp_storage_index(storage_stacks, s_idx);
-        let temp_storage_id = inst.storages[temp_idx].id;
-        let temp_stor = &inst.storages[temp_idx];
-        let temp_bl = temp_stor.staging_bl.expect("storage sem staging_bl");
-        let temp_dir = temp_stor.staging_dir.expect("storage sem staging_dir");
-
-        // 4) deslocar para staging do storage temporário e descarregar
-        go_to_pose(inst, c, temp_bl, temp_dir, cmds);
-        do_unload_to_storage(
-            inst,
-            c,
-            top_cid,
-            temp_storage_id,
-            storage_stacks,
-            storage_index,
-            locs,
-            cmds,
-        );
-
-        moved.push((top_cid, storage_id, temp_storage_id));
+impl<'a> PlanningContext<'a> {
+    fn is_debug_cid(&self, cid: Id) -> bool {
+        DEBUG_CIDS.iter().any(|&x| x == cid)
     }
 
-    moved
-}
+    fn goto_staging(&mut self, target_bl: Point, target_dir: Direction) {
+        go_to_pose(self.inst, self.c, target_bl, target_dir, self.cmds);
+    }
 
-fn build_initial_container_map(inst: &Instance) -> ContainerMap {
-    let mut map = ContainerMap::new();
+    // ----------------- crane section safety -----------------
 
-    for (s_idx, stack) in inst.storage_stacks.iter().enumerate() {
-        let storage_id = inst.storages[s_idx].id;
-        for (depth, &cid) in stack.iter().enumerate() {
-            map.insert(
-                cid,
-                ContainerLocation::Storage { storage_id, depth },
-            );
+    fn dims(dir: Direction) -> (i32, i32) {
+        match dir {
+            Direction::Up | Direction::Down => (4, 8),
+            Direction::Left | Direction::Right => (8, 4),
         }
     }
 
-    map
-}
-
-// índice rápido: storage_id -> índice no vetor inst.storages / storage_stacks
-fn build_storage_index(inst: &Instance) -> HashMap<Id, usize> {
-    let mut m = HashMap::new();
-    for (idx, s) in inst.storages.iter().enumerate() {
-        m.insert(s.id, idx);
-    }
-    m
-}
-
-/// índice rápido: dispatch_id -> índice no vetor inst.dispatches
-fn build_dispatch_index(inst: &Instance) -> HashMap<Id, usize> {
-    let mut m = HashMap::new();
-    for (idx, d) in inst.dispatches.iter().enumerate() {
-        m.insert(d.id, idx);
-    }
-    m
-}
-
-// Constroi container_location a partir de inst.storage_stacks inicial
-fn init_container_locations(
-    inst: &Instance,
-    _storage_index: &HashMap<Id, usize>,
-) -> ContainerMap {
-    let mut locs: ContainerMap = HashMap::new();
-
-    for (s_idx, stack) in inst.storage_stacks.iter().enumerate() {
-        let storage_id = inst.storages[s_idx].id;
-        for (depth, &cid) in stack.iter().enumerate() {
-            locs.insert(
-                cid,
-                ContainerLocation::Storage { storage_id, depth },
-            );
+    fn carrier_rect(&self) -> Rect {
+        let (w, h) = Self::dims(self.c.dir);
+        Rect {
+            x1: self.c.bl.x,
+            y1: self.c.bl.y,
+            x2: self.c.bl.x + w - 1,
+            y2: self.c.bl.y + h - 1,
         }
     }
 
-    locs
-}
-
-// inicializa map dispatch_id -> stack de containers (vazio no início)
-fn init_dispatch_containers(inst: &Instance) -> HashMap<Id, Vec<Id>> {
-    let mut m = HashMap::new();
-    for d in &inst.dispatches {
-        m.insert(d.id, Vec::new());
+    fn rects_intersect(a: &Rect, b: &Rect) -> bool {
+        !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
     }
-    m
-}
 
-// Helper: load a partir da dispatch (navio -> carrier)
-fn do_load_from_dispatch(
-    inst: &Instance,
-    c: &mut CarrierState,
-    carrier_id: Id,
-    dispatch_id: Id,
-    container_id: Id,
-    dispatch_containers: &mut HashMap<Id, Vec<Id>>,
-    dispatch_index: &HashMap<Id, usize>,
-    locs: &mut ContainerMap,
-    cmds: &mut Vec<Command>,
-) {
-    // pré-condições: carrier no staging da dispatch e vazio
-    let d_idx = *dispatch_index
-        .get(&dispatch_id)
-        .expect("dispatch inexistente em do_load_from_dispatch");
-    let disp = &inst.dispatches[d_idx];
-    let expected_bl = disp.staging_bl.expect("dispatch sem staging_bl");
-    let expected_dir = disp.staging_dir.expect("dispatch sem staging_dir");
+    fn crane_rect_for_dispatch(&self, dispatch_id: Id) -> Rect {
+        let d_idx = *self.dispatch_idx.get(&dispatch_id).unwrap();
+        let crane_id = self.inst.dispatches[d_idx].crane_id;
+        self.inst.cranes.iter().find(|c| c.id == crane_id).unwrap().rect
+    }
 
-    // reforçar posicionamento com go_to_pose para evitar pequenos desalinhamentos
-    go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-
-    assert!(c.bl == expected_bl, "Carrier não está no staging da dispatch {}", dispatch_id);
-    assert!(c.dir == expected_dir, "Carrier não está virado para staging da dispatch {}", dispatch_id);
-    assert!(c.carrying.is_none(), "Carrier já está a transportar algo ao tentar LOAD from dispatch");
-    
-    // verificar que o container está na dispatch
-    let vec = dispatch_containers
-        .get_mut(&dispatch_id)
-        .expect("dispatch missing in dispatch_containers");
-    let pos = vec.iter().position(|&x| x == container_id);
-
-    if pos.is_none() {
-        // Caso defensivo: o container esperado não está registado na dispatch.
-        // Tentamos recuperá-lo automaticamente se estiver num storage.
-        eprintln!("[WARN] container {} não encontrado na dispatch {}. Tentando recuperar...", container_id, dispatch_id);
-
-        if let Some(loc) = locs.get(&container_id).cloned() {
-            match loc {
-                ContainerLocation::Storage { storage_id, .. } => {
-                    // ir até ao storage, load, ir à dispatch, unload
-                    let storage_index = build_storage_index(inst);
-                    let s_idx = *storage_index
-                        .get(&storage_id)
-                        .expect("storage inexistente ao recuperar container");
-                    let stor = &inst.storages[s_idx];
-                    let sbl = stor.staging_bl.expect("storage sem staging_bl");
-                    let sdir = stor.staging_dir.expect("storage sem staging_dir");
-
-                    go_to_pose(inst, c, sbl, sdir, cmds);
-                    do_load_from_storage(
-                        inst,
-                        c,
-                        carrier_id,
-                        container_id,
-                        storage_id,
-                        // precisamos de acesso às storage_stacks aqui; como não temos,
-                        // apenas actualizamos locs e assumimos que a pop é segura.
-                        &mut inst.storage_stacks.clone(),
-                        &storage_index,
-                        locs,
-                        cmds,
-                    );
-
-                    // agora descarregar para a dispatch para que a lógica continue
-                    let d_idx = *dispatch_index
-                        .get(&dispatch_id)
-                        .expect("dispatch inexistente em fallback");
-                    let disp = &inst.dispatches[d_idx];
-                    let dbl = disp.staging_bl.expect("dispatch sem staging_bl");
-                    let ddir = disp.staging_dir.expect("dispatch sem staging_dir");
-                    go_to_pose(inst, c, dbl, ddir, cmds);
-                    do_unload_to_dispatch(c, container_id, dispatch_id, locs, cmds);
-                    if let Some(v) = dispatch_containers.get_mut(&dispatch_id) {
-                        v.push(container_id);
-                    }
-                }
-                other => {
-                    eprintln!("[ERROR] Não consegui recuperar container {} desde {:?}", container_id, other);
-                }
-            }
-        } else {
-            eprintln!("[ERROR] Localização desconhecida para container {} ao tentar recuperar para dispatch {}", container_id, dispatch_id);
+    fn ensure_outside_crane_section(&mut self, dispatch_id: Id) {
+        let crane = self.crane_rect_for_dispatch(dispatch_id);
+        while Self::rects_intersect(&self.carrier_rect(), &crane) {
+            let target_y = crane.y2 + 1;
+            self.goto_staging(Point { x: self.c.bl.x, y: target_y }, Direction::Up);
         }
-
-        // atualizar posição depois da tentativa de recuperação
     }
 
-    // tentar novamente remover do vector da dispatch
-    let vec = dispatch_containers
-        .get_mut(&dispatch_id)
-        .expect("dispatch missing in dispatch_containers");
-    let pos = vec.iter().position(|&x| x == container_id);
-    assert!(pos.is_some(), "container {} não está presente na dispatch {} (após tentativa de recuperação)", container_id, dispatch_id);
-    vec.remove(pos.unwrap());
+    fn spawn_on_dispatch(&mut self, dispatch_id: Id, container_id: Id) {
+        self.ensure_outside_crane_section(dispatch_id);
 
-    let t = c.time;
-    cmds.push(Command::Load { t });
-    c.time += 1;
+        self.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
 
-    c.carrying = Some(container_id);
-    locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id });
-}
 
-// Helper: load a partir de storage (yard -> carrier)
-fn do_load_from_storage(
-    inst: &Instance,
-    c: &mut CarrierState,
-    carrier_id: Id,
-    container_id: Id,
-    storage_id: Id,
-    storage_stacks: &mut Vec<Vec<Id>>,
-    storage_index: &HashMap<Id, usize>,
-    locs: &mut ContainerMap,
-    cmds: &mut Vec<Command>,
-) {
-    let s_idx = *storage_index
-        .get(&storage_id)
-        .expect("storage inexistente em do_load_from_storage");
-    let stor = &inst.storages[s_idx];
-    let expected_bl = stor.staging_bl.expect("storage sem staging_bl");
-    let expected_dir = stor.staging_dir.expect("storage sem staging_dir");
+        self.locs.insert(container_id, ContainerLocation::Dispatch { dispatch_id });
 
-    // reforçar posicionamento com go_to_pose para evitar pequenos desalinhamentos
-    go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-    
-    
-
-    assert!(c.bl == expected_bl, "Carrier não está no staging da storage {}", storage_id);
-    assert!(c.dir == expected_dir, "Carrier não está virado para staging da storage {}", storage_id);
-    assert!(c.carrying.is_none(), "Carrier já está a transportar algo ao tentar LOAD from storage");
-
-    let stack = &mut storage_stacks[s_idx];
-    assert!(!stack.is_empty(), "storage {} vazia ao tentar LOAD", storage_id);
-    // procurar o container na stack; se estiver no topo faz pop, senão remove na posição
-    let pos_opt = stack.iter().position(|&x| x == container_id);
-    if let Some(pos) = pos_opt {
-        if pos == stack.len() - 1 {
-            let _ = stack.pop().unwrap();
-        } else {
+        if self.is_debug_cid(container_id) {
             eprintln!(
-                "[WARN] container {} não estava no topo da storage {} (pos {}). Removendo da stack.",
-                container_id, storage_id, pos
+                "[DBG spawn_on_dispatch] dispatch={} container={} vec={:?} loc={:?}",
+                dispatch_id,
+                container_id,
+                self.dispatch_containers.get(&dispatch_id),
+                self.locs.get(&container_id)
             );
-            stack.remove(pos);
         }
-    } else {
-        panic!("container {} não encontrado na storage {} ao tentar LOAD", container_id, storage_id);
     }
 
-    // Atualizar o mapa de localizações para todos os contentores remanescentes na stack
-    for (depth, &cid) in stack.iter().enumerate() {
-        locs.insert(
-            cid,
-            ContainerLocation::Storage { storage_id, depth },
+    fn finalize_delivery_to_ship(&mut self, dispatch_id: Id, container_id: Id) {
+        self.ensure_outside_crane_section(dispatch_id);
+
+        self.locs.remove(&container_id);
+        if let Some(v) = self.dispatch_containers.get_mut(&dispatch_id) {
+            v.clear();
+        }
+
+        if self.is_debug_cid(container_id) {
+            eprintln!(
+                "[DBG finalize_delivery_to_ship] dispatch={} container={} loc_present={}",
+                dispatch_id,
+                container_id,
+                self.locs.contains_key(&container_id)
+            );
+        }
+    }
+
+    // ----------------- dispatch load/unload -----------------
+
+    fn load_from_dispatch(&mut self, dispatch_id: Id, container_id: Id) {
+        let d_idx = *self.dispatch_idx.get(&dispatch_id).unwrap();
+        let disp = &self.inst.dispatches[d_idx];
+        let bl = disp.staging_bl.unwrap();
+        let dir = disp.staging_dir.unwrap();
+
+        self.goto_staging(bl, dir);
+
+        // logical remove from dispatch vector
+        let vec = self.dispatch_containers.get_mut(&dispatch_id).unwrap();
+        let pos = vec.iter().position(|&x| x == container_id)
+            .expect("Container não está na dispatch para load");
+        vec.remove(pos);
+
+        let t = self.c.time;
+        self.cmds.push(Command::Load { t });
+        self.c.time += 1;
+        self.c.carrying = Some(container_id);
+
+        self.locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id: self.c.id });
+    }
+
+    fn unload_to_dispatch(&mut self, dispatch_id: Id, container_id: Id) {
+        let d_idx = *self.dispatch_idx.get(&dispatch_id).unwrap();
+        let disp = &self.inst.dispatches[d_idx];
+        let bl = disp.staging_bl.unwrap();
+        let dir = disp.staging_dir.unwrap();
+
+        self.goto_staging(bl, dir);
+
+        let t = self.c.time;
+        self.cmds.push(Command::Unload { t });
+        self.c.time += 1;
+        self.c.carrying = None;
+
+       self.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
+
+
+        self.ensure_outside_crane_section(dispatch_id);
+    }
+
+    // ----------------- storage load/unload -----------------
+
+    fn load_from_storage(&mut self, storage_id: Id, container_id: Id) {
+        let s_idx = *self.storage_idx.get(&storage_id).unwrap();
+        let stor = &self.inst.storages[s_idx];
+        let bl = stor.staging_bl.unwrap();
+        let dir = stor.staging_dir.unwrap();
+
+        self.goto_staging(bl, dir);
+
+        let stack = &mut self.storage_stacks[s_idx];
+        assert_eq!(
+            stack.last(),
+            Some(&container_id),
+            "ERRO: Tentou carregar contentor que não está no topo!"
         );
+        stack.pop();
+
+        let t = self.c.time;
+        self.cmds.push(Command::Load { t });
+        self.c.time += 1;
+        self.c.carrying = Some(container_id);
+
+        self.locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id: self.c.id });
     }
 
-    let t = c.time;
-    cmds.push(Command::Load { t });
-    c.time += 1;
+    fn unload_to_storage(&mut self, storage_id: Id, container_id: Id) {
+        let s_idx = *self.storage_idx.get(&storage_id).unwrap();
+        let stor = &self.inst.storages[s_idx];
+        let bl = stor.staging_bl.unwrap();
+        let dir = stor.staging_dir.unwrap();
 
-    c.carrying = Some(container_id);
-    locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id });
+        self.goto_staging(bl, dir);
+
+        let stack = &mut self.storage_stacks[s_idx];
+        if stack.len() >= 2 {
+            panic!(
+                "ERRO: Tentativa de unload no storage {} que já está cheio (len=2)",
+                storage_id
+            );
+        }
+
+        let t = self.c.time;
+        self.cmds.push(Command::Unload { t });
+        self.c.time += 1;
+        self.c.carrying = None;
+
+        stack.push(container_id);
+        let depth = stack.len() - 1;
+        self.locs.insert(container_id, ContainerLocation::Storage { storage_id, depth });
+    }
+
+    // ----------------- stack helpers -----------------
+
+    fn find_buffer_storage(&self, exclude: Id) -> Option<Id> {
+        // prefer empty
+        for (i, s) in self.inst.storages.iter().enumerate() {
+            if s.id == exclude { continue; }
+            if self.storage_stacks[i].is_empty() { return Some(s.id); }
+        }
+        // then any with space
+        for (i, s) in self.inst.storages.iter().enumerate() {
+            if s.id == exclude { continue; }
+            if self.storage_stacks[i].len() < 2 { return Some(s.id); }
+        }
+        None
+    }
+
+    fn find_temp_storage_excluding(&self, exclude_id: Id, forbidden: &HashSet<Id>) -> Option<Id> {
+        // empty first
+        for (i, s) in self.inst.storages.iter().enumerate() {
+            if s.id == exclude_id { continue; }
+            if forbidden.contains(&s.id) { continue; }
+            if self.storage_stacks[i].is_empty() {
+                return Some(s.id);
+            }
+        }
+        // then any with space
+        for (i, s) in self.inst.storages.iter().enumerate() {
+            if s.id == exclude_id { continue; }
+            if forbidden.contains(&s.id) { continue; }
+            if self.storage_stacks[i].len() < 2 {
+                return Some(s.id);
+            }
+        }
+        None
+    }
+
+    /// Ensure target is accessible: if it's in bottom, move top away to a buffer.
+    /// If the top is protected, we still allow moving it, but we register its “home” to put it back later.
+    fn ensure_container_accessible(&mut self, storage_id: Id, target_cid: Id) -> Result<(), ()> {
+        let s_idx = *self.storage_idx.get(&storage_id).unwrap();
+
+        if self.storage_stacks[s_idx].is_empty() {
+            return Err(());
+        }
+
+        let stack_len = self.storage_stacks[s_idx].len();
+        let top_cid = self.storage_stacks[s_idx][stack_len - 1];
+
+        if top_cid == target_cid {
+            return Ok(());
+        }
+
+        // target must be bottom (height max 2)
+        if self.protected.contains(&top_cid) {
+            self.final_dest.entry(top_cid).or_insert(storage_id);
+        }
+
+        let forbidden: HashSet<Id> = HashSet::new();
+        let temp = self
+            .find_temp_storage_excluding(storage_id, &forbidden)
+            .or_else(|| self.find_buffer_storage(storage_id))
+            .ok_or(())?;
+
+        self.load_from_storage(storage_id, top_cid);
+        self.unload_to_storage(temp, top_cid);
+
+        Ok(())
+    }
+
+    /// For tiny instances: just use preferred if it has space; otherwise any buffer with space.
+    fn choose_storage_for_ship_unload(&self, preferred: Id) -> Id {
+        let s_idx = *self.storage_idx.get(&preferred).unwrap();
+        if self.storage_stacks[s_idx].len() < 2 {
+            return preferred;
+        }
+        self.find_buffer_storage(preferred)
+            .unwrap_or_else(|| panic!("ERRO CRÍTICO: yard cheio, sem espaço para unload!"))
+    }
+
+    /// Try to move deviated containers back “home” if possible (optional, helps avoid messy yard).
+    fn attempt_relocate_finalized(&mut self) {
+        let entries: Vec<(Id, Id)> = self.final_dest.iter().map(|(&k, &v)| (k, v)).collect();
+
+        for (cid, preferred) in entries {
+            let cur_loc = match self.locs.get(&cid).cloned() {
+                Some(l) => l,
+                None => continue,
+            };
+
+            match cur_loc {
+                ContainerLocation::Storage { storage_id, .. } => {
+                    if storage_id == preferred {
+                        self.final_dest.remove(&cid);
+                        self.protected.insert(cid);
+                        continue;
+                    }
+
+                    if self.ensure_container_accessible(storage_id, cid).is_err() {
+                        continue;
+                    }
+
+                    self.load_from_storage(storage_id, cid);
+                    self.unload_to_storage(preferred, cid);
+
+                    self.final_dest.remove(&cid);
+                    self.protected.insert(cid);
+                }
+                ContainerLocation::OnCarrier { .. } => {
+                    self.unload_to_storage(preferred, cid);
+                    self.final_dest.remove(&cid);
+                    self.protected.insert(cid);
+                }
+                ContainerLocation::Dispatch { .. } => {
+                    // should not happen here
+                    continue;
+                }
+            }
+        }
+    }
 }
 
-// Helper: unload para storage (atualiza stack + localização)
-fn do_unload_to_storage(
-    inst: &Instance,
-    c: &mut CarrierState,
-    container_id: Id,
-    storage_id: Id,
-    storage_stacks: &mut Vec<Vec<Id>>,
-    storage_index: &HashMap<Id, usize>,
-    locs: &mut ContainerMap,
-    cmds: &mut Vec<Command>,
-) {
-    // garantir posicionamento exato no staging antes de descarregar
-    let s_idx = *storage_index
-        .get(&storage_id)
-        .expect("storage id inválido em do_unload_to_storage");
-    let stor = &inst.storages[s_idx];
-    let expected_bl = stor.staging_bl.expect("storage sem staging_bl");
-    let expected_dir = stor.staging_dir.expect("storage sem staging_dir");
-    // reinforce positioning similarly to do_load_from_storage: try twice to correct small misalignments
-    go_to_pose(inst, c, expected_bl, expected_dir, cmds);
-   
-        
-    
-
-    // pré-condição: carrier carrega o container
-    assert!(c.carrying.is_some(), "Carrier não carrega nada ao tentar UNLOAD para storage {}", storage_id);
-
-    // Safety: verify we're exactly at the expected staging pose before unloading
-    assert!(c.bl == expected_bl, "Tentativa de UNLOAD fora do staging da storage {}: bl={:?} expected={:?}", storage_id, c.bl, expected_bl);
-    assert!(c.dir == expected_dir, "Tentativa de UNLOAD com direção errada na storage {}: dir={:?} expected={:?}", storage_id, c.dir, expected_dir);
-
-    let t = c.time;
-    cmds.push(Command::Unload { t });
-    c.time += 1;
-    c.carrying = None;
-
-    let stack = &mut storage_stacks[s_idx];
-    // Enforce capacity 2: do not allow unloading into a full storage
-    assert!(stack.len() < 2, "Tentativa de UNLOAD na storage {} que já está cheia (capacidade 2)", storage_id);
-    stack.push(container_id);
-    let depth = stack.len() - 1;
-
-    locs.insert(
-        container_id,
-        ContainerLocation::Storage { storage_id, depth },
-    );
-
-    
-}
-
-// Helper: unload para dispatch (para o caso de LOAD d c → ship)
-fn do_unload_to_dispatch(
-    c: &mut CarrierState,
-    container_id: Id,
-    dispatch_id: Id,
-    locs: &mut ContainerMap,
-    cmds: &mut Vec<Command>,
-) {
-    assert!(c.carrying.is_some(), "Carrier não carrega nada ao tentar UNLOAD para dispatch {}", dispatch_id);
-    let t = c.time;
-    cmds.push(Command::Unload { t });
-    c.time += 1;
-    c.carrying = None;
-
-    locs.insert(
-        container_id,
-        ContainerLocation::Dispatch { dispatch_id },
-    );
-}
+// -----------------------------------------------------------------------------
+// MAIN
+// -----------------------------------------------------------------------------
 
 pub fn plan_all_demands(inst: &Instance) -> Vec<Command> {
-    // 1) estado local das stacks (copiado do instance)
-        eprintln!("[DBG plan_all_demands] initial storage_stacks={:?}", inst.storage_stacks);
-        eprintln!("[DBG plan_all_demands] initial dispatch_containers={:?}", init_dispatch_containers(inst));
-        eprintln!("[DBG plan_all_demands] all_demands={:?}", inst.demands);
-    let mut storage_stacks: Vec<Vec<Id>> = inst.storage_stacks.clone();
+    let mut storage_stacks = inst.storage_stacks.clone();
+    let mut dispatch_containers: HashMap<Id, Vec<Id>> = HashMap::new();
+    let mut locs: HashMap<Id, ContainerLocation> = HashMap::new();
+    let mut protected: HashSet<Id> = HashSet::new();
+    let mut final_dest: HashMap<Id, Id> = HashMap::new();
 
-    // 2) índices rápidos
-    let storage_index = build_storage_index(inst);
-    let dispatch_index = build_dispatch_index(inst);
+    for d in &inst.dispatches {
+        dispatch_containers.insert(d.id, Vec::new());
+    }
+    for (s_idx, stack) in storage_stacks.iter().enumerate() {
+        let sid = inst.storages[s_idx].id;
+        for (depth, &cid) in stack.iter().enumerate() {
+            locs.insert(cid, ContainerLocation::Storage { storage_id: sid, depth });
+        }
+    }
 
-    // 3) localização lógica dos contentores
-    let mut locs = init_container_locations(inst, &storage_index);
-    // 3b) estado lógico dos containers nas dispatches (vazio inicialmente)
-    let mut dispatch_containers: HashMap<Id, Vec<Id>> = init_dispatch_containers(inst);
+    let mut storage_idx = HashMap::new();
+    for (i, s) in inst.storages.iter().enumerate() {
+        storage_idx.insert(s.id, i);
+    }
+    let mut dispatch_idx = HashMap::new();
+    for (i, d) in inst.dispatches.iter().enumerate() {
+        dispatch_idx.insert(d.id, i);
+    }
 
-    // 4) carrier único: construir CarrierState inicial a partir do instance
-    let carrier_def = inst
-        .carriers
-        .get(0)
-        .expect("Esperava pelo menos 1 carrier");
-
+    // 1 carrier
+    let carrier_def = &inst.carriers[0];
     let mut c = CarrierState {
-        id:   carrier_def.id,
-        bl:   carrier_def.bl,
-        dir:  carrier_def.dir,
+        id: carrier_def.id,
+        bl: carrier_def.bl,
+        dir: carrier_def.dir,
         carrying: None,
         time: 0,
     };
 
-    let carrier_id = c.id;
     let mut cmds: Vec<Command> = Vec::new();
 
-    // 5) percorre as ships em ordem e as suas operations (mantém ordem por ship)
-    if !inst.ships.is_empty() {
-        for ship in &inst.ships {
-            for d in &ship.operations {
-                eprintln!("[DBG ship_op] t={} ship={} op={:?} storage_stacks={:?} dispatchs={:?}", c.time, ship.ship_id, d, storage_stacks, dispatch_containers);
-                match *d {
-                    Demand::Unload { dispatch_id, container_id, storage_id } => {
-                        // container chega do navio → aparece na dispatch
-                        locs.insert(
-                            container_id,
-                            ContainerLocation::Dispatch { dispatch_id },
-                        );
-                        // também regista nos containers da dispatch
-                        if let Some(vec) = dispatch_containers.get_mut(&dispatch_id) {
-                            vec.push(container_id);
-                        } else {
-                            dispatch_containers.insert(dispatch_id, vec![container_id]);
-                        }
-
-                        // 1) ir para staging da dispatch
-                        let d_idx = *dispatch_index
-                            .get(&dispatch_id)
-                            .expect("dispatch inexistente em UNLOAD");
-                        let disp = &inst.dispatches[d_idx];
-                        let dbl = disp
-                            .staging_bl
-                            .expect("dispatch sem staging_bl");
-                        let ddir = disp
-                            .staging_dir
-                            .expect("dispatch sem staging_dir");
-
-                        go_to_pose(inst, &mut c, dbl, ddir, &mut cmds);
-
-                        // 2) load do container da dispatch para o carrier
-                        do_load_from_dispatch(
-                            inst,
-                            &mut c,
-                            carrier_id,
-                            dispatch_id,
-                            container_id,
-                            &mut dispatch_containers,
-                            &dispatch_index,
-                            &mut locs,
-                            &mut cmds,
-                        );
-
-                        // 3) ir para staging do storage s
-                        let s_idx = *storage_index
-                            .get(&storage_id)
-                            .expect("storage inexistente em UNLOAD");
-                        let stor = &inst.storages[s_idx];
-                        let sbl = stor
-                            .staging_bl
-                            .expect("storage sem staging_bl");
-                        let sdir = stor
-                            .staging_dir
-                            .expect("storage sem staging_dir");
-
-                        go_to_pose(inst, &mut c, sbl, sdir, &mut cmds);
-
-                        // 4) unload para storage (empilha no topo)
-                        do_unload_to_storage(
-                            inst,
-                            &mut c,
-                            container_id,
-                            storage_id,
-                            &mut storage_stacks,
-                            &storage_index,
-                            &mut locs,
-                            &mut cmds,
-                        );
-                    }
-
-                    Demand::Load { dispatch_id, container_id } => {
-                        // encontrar onde está o container
-                        let loc = locs
-                            .get(&container_id)
-                            .cloned()
-                            .expect("Demand LOAD com container desconhecido");
-
-                        match loc {
-                            ContainerLocation::Storage { storage_id, depth } => {
-                                let s_idx = *storage_index
-                                    .get(&storage_id)
-                                    .expect("storage inexistente em LOAD");
-                                let stack = &storage_stacks[s_idx];
-
-                                let mut moved_temp: Vec<(Id, Id, Id)> = Vec::new();
-                                if stack.last() != Some(&container_id) {
-                                    // Reempilhar temporariamente os contentores que bloqueiam
-                                    moved_temp = restack_blocking_containers(
-                                        inst,
-                                        &mut c,
-                                        carrier_id,
-                                        container_id,
-                                        storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-                                }
-
-                                // 1) ir para staging desse storage
-                                let stor = &inst.storages[s_idx];
-                                let sbl = stor
-                                    .staging_bl
-                                    .expect("storage sem staging_bl");
-                                let sdir = stor
-                                    .staging_dir
-                                    .expect("storage sem staging_dir");
-
-                                go_to_pose(inst, &mut c, sbl, sdir, &mut cmds);
-
-                                // 2) load do topo da stack (do_load_from_storage fará o pop e as verificações)
-                                do_load_from_storage(
-                                    inst,
-                                    &mut c,
-                                    carrier_id,
-                                    container_id,
-                                    storage_id,
-                                    &mut storage_stacks,
-                                    &storage_index,
-                                    &mut locs,
-                                    &mut cmds,
-                                );
-
-                                // 3) ir para staging da dispatch
-                                let d_idx = *dispatch_index
-                                    .get(&dispatch_id)
-                                    .expect("dispatch inexistente em LOAD");
-                                let disp = &inst.dispatches[d_idx];
-                                let dbl = disp
-                                    .staging_bl
-                                    .expect("dispatch sem staging_bl");
-                                let ddir = disp
-                                    .staging_dir
-                                    .expect("dispatch sem staging_dir");
-
-                                go_to_pose(inst, &mut c, dbl, ddir, &mut cmds);
-
-                                // 4) unload para dispatch (navio depois trata)
-                                do_unload_to_dispatch(
-                                    &mut c,
-                                    container_id,
-                                    dispatch_id,
-                                    &mut locs,
-                                    &mut cmds,
-                                );
-                                if let Some(vec) = dispatch_containers.get_mut(&dispatch_id) {
-                                    vec.push(container_id);
-                                } else {
-                                    dispatch_containers.insert(dispatch_id, vec![container_id]);
-                                }
-
-                                // Restaurar temporários em ordem inversa (LIFO)
-                                for (m_cid, orig_storage_id, temp_storage_id) in moved_temp.into_iter().rev() {
-                                    // ir para staging do storage temporário
-                                    let temp_idx = *storage_index
-                                        .get(&temp_storage_id)
-                                        .expect("temp storage inexistente ao restaurar");
-                                    let temp_st = &inst.storages[temp_idx];
-                                    let t_bl = temp_st.staging_bl.expect("storage sem staging_bl");
-                                    let t_dir = temp_st.staging_dir.expect("storage sem staging_dir");
-                                    go_to_pose(inst, &mut c, t_bl, t_dir, &mut cmds);
-
-                                    // load do temp
-                                    do_load_from_storage(
-                                        inst,
-                                        &mut c,
-                                        carrier_id,
-                                        m_cid,
-                                        temp_storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-
-                                    // voltar ao storage original e descarregar
-                                    let orig_idx = *storage_index
-                                        .get(&orig_storage_id)
-                                        .expect("orig storage inexistente ao restaurar");
-                                    let orig_st = &inst.storages[orig_idx];
-                                    let o_bl = orig_st.staging_bl.expect("storage sem staging_bl");
-                                    let o_dir = orig_st.staging_dir.expect("storage sem staging_dir");
-                                    go_to_pose(inst, &mut c, o_bl, o_dir, &mut cmds);
-                                    do_unload_to_storage(
-                                        inst,
-                                        &mut c,
-                                        m_cid,
-                                        orig_storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-                                }
-                            }
-
-                            ContainerLocation::Dispatch { dispatch_id: d2 } => {
-                                eprintln!(
-                                    "[WARN] LOAD pediu contentor {} que já está na dispatch {}. Caso especial ainda não tratado.",
-                                    container_id, d2
-                                );
-                            }
-
-                            ContainerLocation::OnCarrier { carrier_id: cid } => {
-                                eprintln!(
-                                    "[WARN] LOAD do contentor {} mas já está em cima do carrier {}.",
-                                    container_id, cid
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // fallback: process flat demands vector if ships not present
-        for d in &inst.demands {
-            match *d {
-                Demand::Unload {
-                    dispatch_id,
-                    container_id,
-                    storage_id,
-                } => {
-                    // container chega do navio → aparece na dispatch
-                    locs.insert(
-                        container_id,
-                        ContainerLocation::Dispatch { dispatch_id },
-                    );
-                    // também regista nos containers da dispatch
-                    if let Some(vec) = dispatch_containers.get_mut(&dispatch_id) {
-                        vec.push(container_id);
-                    } else {
-                        dispatch_containers.insert(dispatch_id, vec![container_id]);
-                    }
-
-                    // 1) ir para staging da dispatch
-                    let d_idx = *dispatch_index
-                        .get(&dispatch_id)
-                        .expect("dispatch inexistente em UNLOAD");
-                    let disp = &inst.dispatches[d_idx];
-                    let dbl = disp
-                        .staging_bl
-                        .expect("dispatch sem staging_bl");
-                    let ddir = disp
-                        .staging_dir
-                        .expect("dispatch sem staging_dir");
-
-                    go_to_pose(inst, &mut c, dbl, ddir, &mut cmds);
-
-                    // 2) load do container da dispatch para o carrier
-                    do_load_from_dispatch(
-                        inst,
-                        &mut c,
-                        carrier_id,
-                        dispatch_id,
-                        container_id,
-                        &mut dispatch_containers,
-                        &dispatch_index,
-                        &mut locs,
-                        &mut cmds,
-                    );
-
-                    // 3) ir para staging do storage s
-                    let s_idx = *storage_index
-                        .get(&storage_id)
-                        .expect("storage inexistente em UNLOAD");
-                    let stor = &inst.storages[s_idx];
-                    let sbl = stor
-                        .staging_bl
-                        .expect("storage sem staging_bl");
-                    let sdir = stor
-                        .staging_dir
-                        .expect("storage sem staging_dir");
-
-                    go_to_pose(inst, &mut c, sbl, sdir, &mut cmds);
-
-                    // 4) unload para storage (empilha no topo)
-                    do_unload_to_storage(
-                        inst,
-                        &mut c,
-                        container_id,
-                        storage_id,
-                        &mut storage_stacks,
-                        &storage_index,
-                        &mut locs,
-                        &mut cmds,
-                    );
-                }
-
-                Demand::Load {
-                    dispatch_id,
-                    container_id,
-                } => {
-                    // container está no yard; descobrir onde
-                    let loc = locs
-                        .get(&container_id)
-                        .cloned()
-                        .expect("Demand LOAD com container desconhecido");
-
-                    match loc {
-                            ContainerLocation::Storage { storage_id, depth } => {
-                                let s_idx = *storage_index
-                                    .get(&storage_id)
-                                    .expect("storage inexistente em LOAD");
-                                let stack = &storage_stacks[s_idx];
-
-                                let mut moved_temp: Vec<(Id, Id, Id)> = Vec::new();
-                                if stack.last() != Some(&container_id) {
-                                    moved_temp = restack_blocking_containers(
-                                        inst,
-                                        &mut c,
-                                        carrier_id,
-                                        container_id,
-                                        storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-                                }
-
-                                // 1) ir para staging desse storage
-                                let stor = &inst.storages[s_idx];
-                                let sbl = stor
-                                    .staging_bl
-                                    .expect("storage sem staging_bl");
-                                let sdir = stor
-                                    .staging_dir
-                                    .expect("storage sem staging_dir");
-
-                                go_to_pose(inst, &mut c, sbl, sdir, &mut cmds);
-
-                                // 2) load do topo da stack (do_load_from_storage fará o pop e as verificações)
-                                do_load_from_storage(
-                                    inst,
-                                    &mut c,
-                                    carrier_id,
-                                    container_id,
-                                    storage_id,
-                                    &mut storage_stacks,
-                                    &storage_index,
-                                    &mut locs,
-                                    &mut cmds,
-                                );
-
-                                // 3) ir para staging da dispatch
-                                let d_idx = *dispatch_index
-                                    .get(&dispatch_id)
-                                    .expect("dispatch inexistente em LOAD");
-                                let disp = &inst.dispatches[d_idx];
-                                let dbl = disp
-                                    .staging_bl
-                                    .expect("dispatch sem staging_bl");
-                                let ddir = disp
-                                    .staging_dir
-                                    .expect("dispatch sem staging_dir");
-
-                                go_to_pose(inst, &mut c, dbl, ddir, &mut cmds);
-
-                                // 4) unload para dispatch (navio depois trata)
-                                do_unload_to_dispatch(
-                                    &mut c,
-                                    container_id,
-                                    dispatch_id,
-                                    &mut locs,
-                                    &mut cmds,
-                                );
-
-                                if let Some(vec) = dispatch_containers.get_mut(&dispatch_id) {
-                                    vec.push(container_id);
-                                } else {
-                                    dispatch_containers.insert(dispatch_id, vec![container_id]);
-                                }
-
-                                // Restaurar temporários em ordem inversa (LIFO)
-                                for (m_cid, orig_storage_id, temp_storage_id) in moved_temp.into_iter().rev() {
-                                    // ir para staging do storage temporário
-                                    let temp_idx = *storage_index
-                                        .get(&temp_storage_id)
-                                        .expect("temp storage inexistente ao restaurar");
-                                    let temp_st = &inst.storages[temp_idx];
-                                    let t_bl = temp_st.staging_bl.expect("storage sem staging_bl");
-                                    let t_dir = temp_st.staging_dir.expect("storage sem staging_dir");
-                                    go_to_pose(inst, &mut c, t_bl, t_dir, &mut cmds);
-
-                                    // load do temp
-                                    do_load_from_storage(
-                                        inst,
-                                        &mut c,
-                                        carrier_id,
-                                        m_cid,
-                                        temp_storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-
-                                    // voltar ao storage original e descarregar
-                                    let orig_idx = *storage_index
-                                        .get(&orig_storage_id)
-                                        .expect("orig storage inexistente ao restaurar");
-                                    let orig_st = &inst.storages[orig_idx];
-                                    let o_bl = orig_st.staging_bl.expect("storage sem staging_bl");
-                                    let o_dir = orig_st.staging_dir.expect("storage sem staging_dir");
-                                    go_to_pose(inst, &mut c, o_bl, o_dir, &mut cmds);
-                                    do_unload_to_storage(
-                                        inst,
-                                        &mut c,
-                                        m_cid,
-                                        orig_storage_id,
-                                        &mut storage_stacks,
-                                        &storage_index,
-                                        &mut locs,
-                                        &mut cmds,
-                                    );
-                                }
-                        }
-
-                        ContainerLocation::Dispatch { dispatch_id: d2 } => {
-                            eprintln!(
-                                "[WARN] LOAD pediu contentor {} que já está na dispatch {}. Caso especial ainda não tratado.",
-                                container_id, d2
-                            );
-                        }
-
-                        ContainerLocation::OnCarrier { carrier_id: cid } => {
-                            eprintln!(
-                                "[WARN] LOAD do contentor {} mas já está em cima do carrier {}.",
-                                container_id, cid
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Compacta movimentos redundantes antes de devolver
-    
-    cmds
-}
-
-fn compact_moves(cmds: Vec<Command>) -> Vec<Command> {
-    let mut out: Vec<Command> = Vec::new();
-    let mut pending: Option<(i32, i32)> = None; // (t_start, k)
-
-    let mut flush = |out: &mut Vec<Command>, pending: &mut Option<(i32, i32)>| {
-        if let Some((t, k)) = pending.take() {
-            if k != 0 {
-                out.push(Command::Move { t, k });
-            }
-        }
+    let mut ctx = PlanningContext {
+        inst,
+        c: &mut c,
+        cmds: &mut cmds,
+        storage_stacks: &mut storage_stacks,
+        locs: &mut locs,
+        dispatch_containers: &mut dispatch_containers,
+        storage_idx: &storage_idx,
+        dispatch_idx: &dispatch_idx,
+        protected: &mut protected,
+        final_dest: &mut final_dest,
     };
 
-    for cmd in cmds {
-        match cmd {
-            Command::Move { t, k } => {
-                if let Some((pt, pk)) = pending {
-                    let pk_end = pt + pk.abs();
+    // Flatten demands: ships first (tiny instances use ships)
+    let mut pending: Vec<Demand> = Vec::new();
+    for ship in &inst.ships {
+        for op in &ship.operations {
+            pending.push(op.clone());
+        }
+    }
+    if pending.is_empty() {
+        pending.extend(inst.demands.iter().cloned());
+    }
 
-                    // Só merge se for exatamente contínuo no tempo
-                    // e se não houver cancelamento (mesmo sinal)
-                    if pk_end == t && pk.signum() == k.signum() {
-                        pending = Some((pt, pk + k));
-                    } else {
-                        flush(&mut out, &mut pending);
-                        pending = Some((t, k));
-                    }
-                } else {
-                    pending = Some((t, k));
+    while let Some(demand) = pending.first().cloned() {
+        pending.remove(0);
+
+        match demand {
+            Demand::Unload { dispatch_id, container_id, storage_id } => {
+                // ship -> dispatch (spawn), then carrier picks and places in storage
+                ctx.spawn_on_dispatch(dispatch_id, container_id);
+                ctx.load_from_dispatch(dispatch_id, container_id);
+
+                let chosen = ctx.choose_storage_for_ship_unload(storage_id);
+
+                if chosen != storage_id {
+                    ctx.final_dest.insert(container_id, storage_id);
                 }
+
+                ctx.unload_to_storage(chosen, container_id);
+
+                // mark as protected if it ended in requested place; otherwise it will be protected when relocated
+                if chosen == storage_id {
+                    ctx.protected.insert(container_id);
+                }
+
+                // optional cleanup
+                ctx.attempt_relocate_finalized();
             }
-            other => {
-                flush(&mut out, &mut pending);
-                out.push(other);
+
+            Demand::Load { dispatch_id, container_id } => {
+                // yard -> dispatch -> ship
+                let current_loc = ctx.locs.get(&container_id).cloned().expect("Container perdido?");
+
+                match current_loc {
+                    ContainerLocation::Storage { storage_id, .. } => {
+                        // ensure it is on top
+                        if ctx.ensure_container_accessible(storage_id, container_id).is_err() {
+                            // if we can't access now, push to end and continue
+                            pending.push(Demand::Load { dispatch_id, container_id });
+                            continue;
+                        }
+
+                        ctx.load_from_storage(storage_id, container_id);
+                        ctx.unload_to_dispatch(dispatch_id, container_id);
+                        ctx.finalize_delivery_to_ship(dispatch_id, container_id);
+
+                        // optional cleanup
+                        ctx.attempt_relocate_finalized();
+                    }
+                    _ => panic!("Load pede contentor que não está em Storage: {:?}", current_loc),
+                }
             }
         }
     }
 
-    flush(&mut out, &mut pending);
-    out
+    cmds
 }
-

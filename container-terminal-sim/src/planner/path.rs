@@ -89,36 +89,14 @@ fn opposite(dir: Direction) -> Direction {
 fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
     if c.dir == new_dir { return; }
 
-    // Checker can reject a rotation if we are currently intersecting a storage.
-    // So, before *any* face, if we overlap a storage, step vertically out of all storages first.
-    if intersects_any_storage(inst, c.bl, c.dir) {
-        let cur = carrier_rect(c.bl, c.dir);
-        let mut max_y2 = i32::MIN;
-        let mut min_y1 = i32::MAX;
-        let mut max_x2 = i32::MIN;
-        let mut min_x1 = i32::MAX;
-        for s in &inst.storages {
-            if rect_intersects(&cur, &s.rect) {
-                max_y2 = max_y2.max(s.rect.y2);
-                min_y1 = min_y1.min(s.rect.y1);
-                max_x2 = max_x2.max(s.rect.x2);
-                min_x1 = min_x1.min(s.rect.x1);
-            }
-        }
-
-        // Escolhe eixo para sair com base na orientação atual: se estamos horizontais,
-        // mover ao longo de X evita que `move_along_y` tente rodar e provoque recursão
-        if is_horizontal(c.dir) {
-            let left_x = min_x1 - LONG;
-            let right_x = max_x2 + 1;
-            let dist_left = (c.bl.x - left_x).abs();
-            let dist_right = (c.bl.x - right_x).abs();
-            let exit_x = if dist_left <= dist_right { left_x } else { right_x };
-            move_along_x(inst, c, exit_x, cmds);
-        } else {
-            // Move just above or fully below the blocking storages.
-            let up_y = max_y2 + 1;
-            let down_y = min_y1 - LONG;
+    // RULE: never rotate while in yard. Exit yard first.
+    // This matches: inside yard -> only move / move -k, no faces.
+    if in_yard(inst, c.bl, c.dir) {
+        if let Some(yard) = inst.yard_rect {
+            // pick closest exit vertically (works with vertical dir, and if horizontal appears,
+            // move_along_y will rotate outside-yard only after we exit)
+            let up_y = yard.y2 + 1;
+            let down_y = yard.y1 - LONG;
             let dist_up = (c.bl.y - up_y).abs();
             let dist_down = (c.bl.y - down_y).abs();
             let exit_y = if dist_up <= dist_down { up_y } else { down_y };
@@ -126,67 +104,57 @@ fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut
         }
     }
 
-    let dir = c.dir;
-    let changes_footprint =
-        (is_vertical(dir) && is_horizontal(new_dir)) ||
-        (is_horizontal(dir) && is_vertical(new_dir));
+    // Also: checker can reject rotation if we intersect a storage footprint.
+    // So if we still intersect storages, step out first (outside yard).
+    if intersects_any_storage(inst, c.bl, c.dir) {
+        let cur = carrier_rect(c.bl, c.dir);
+        let mut max_y2 = i32::MIN;
+        let mut min_y1 = i32::MAX;
+        let mut max_x2 = i32::MIN;
+        let mut min_x1 = i32::MAX;
+        let mut any = false;
 
-    if changes_footprint {
-        if let Some(yard) = inst.yard_rect {
-            let center = center_from_bl(c.bl, c.dir);
-            let bl_after = bl_from_center(center, new_dir);
-            let predicted = carrier_rect(bl_after, new_dir);
-
-            // Se a rotação (mudança de footprint) cair no yard, sair antes.
-            // E se o resultado for horizontal e bater num storage, sair antes também.
-            let mut intersects_storage = false;
-            if is_horizontal(new_dir) {
-                for s in &inst.storages {
-                    if rect_intersects(&predicted, &s.rect) {
-                        intersects_storage = true;
-                        break;
-                    }
-                }
+        for s in &inst.storages {
+            if rect_intersects(&cur, &s.rect) {
+                any = true;
+                max_y2 = max_y2.max(s.rect.y2);
+                min_y1 = min_y1.min(s.rect.y1);
+                max_x2 = max_x2.max(s.rect.x2);
+                min_x1 = min_x1.min(s.rect.x1);
             }
+        }
 
-            if rect_intersects(&predicted, &yard) || intersects_storage {
-                // Mesmo método: sair preferencialmente pelo eixo em que estamos orientados.
-                if is_horizontal(c.dir) {
-                    let mut min_x1 = i32::MAX;
-                    let mut max_x2 = i32::MIN;
-                    let cur = carrier_rect(c.bl, c.dir);
-                    for s in &inst.storages {
-                        if rect_intersects(&cur, &s.rect) {
-                            min_x1 = min_x1.min(s.rect.x1);
-                            max_x2 = max_x2.max(s.rect.x2);
-                        }
-                    }
-                    let left_x = min_x1 - LONG;
-                    let right_x = max_x2 + 1;
-                    let dist_left = (c.bl.x - left_x).abs();
-                    let dist_right = (c.bl.x - right_x).abs();
-                    let exit_x = if dist_left <= dist_right { left_x } else { right_x };
-                    move_along_x(inst, c, exit_x, cmds);
-                } else {
-                    let up_y = yard.y2 + 1;
-                    let down_y = yard.y1 - LONG;
-                    let dist_up = (c.bl.y - up_y).abs();
-                    let dist_down = (c.bl.y - down_y).abs();
-                    let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-                    move_along_y(inst, c, exit_y, cmds);
-                }
+        if any {
+            // Prefer moving along Y for vertical, along X for horizontal.
+            if is_vertical(c.dir) {
+                let up_y = max_y2 + 1;
+                let down_y = min_y1 - LONG;
+                let dist_up = (c.bl.y - up_y).abs();
+                let dist_down = (c.bl.y - down_y).abs();
+                let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+                move_along_y(inst, c, exit_y, cmds);
+            } else {
+                let left_x = min_x1 - LONG;
+                let right_x = max_x2 + 1;
+                let dist_left = (c.bl.x - left_x).abs();
+                let dist_right = (c.bl.x - right_x).abs();
+                let exit_x = if dist_left <= dist_right { left_x } else { right_x };
+                move_along_x(inst, c, exit_x, cmds);
             }
         }
     }
 
+    // Now rotation is safe.
     let t = c.time;
     cmds.push(Command::Face { t, dir: new_dir });
     c.time += 1;
 
+    // Keep center fixed when changing footprint.
     let center = center_from_bl(c.bl, c.dir);
     c.dir = new_dir;
     c.bl  = bl_from_center(center, c.dir);
 }
+
 
 // move em frente ou marcha-atrás, consoante o sinal de `steps`
 // duração = |steps|
@@ -267,31 +235,30 @@ fn go_storage_to_dispatch(
     target_dir: Direction,
     cmds: &mut Vec<Command>,
 ) {
-    // queremos girar SÓ depois da componente vertical terminar.
     let desired_center = center_from_bl(target_bl, target_dir);
     let bl_before = bl_from_center(desired_center, c.dir);
 
-    // 1) mover VERTICALmente até à linha de rotação (mantendo X onde está)
+    // 1) ainda vertical: alinhar Y para o BL que preserva o centro
     move_along_y(inst, c, bl_before.y, cmds);
 
-    // 2) Se a rotação for para horizontal e estivermos ainda no yard, sair antes de rodar
-    if (target_dir == Direction::Left || target_dir == Direction::Right) && in_yard(inst, c.bl, c.dir) {
+    // 2) se vamos ficar horizontais e ainda estamos no yard, sair antes
+    if is_horizontal(target_dir) && in_yard(inst, c.bl, c.dir) {
         if let Some(yard) = inst.yard_rect {
             let up_y = yard.y2 + 1;
             let down_y = yard.y1 - LONG;
-            let dist_up = (c.bl.y - up_y).abs();
-            let dist_down = (c.bl.y - down_y).abs();
-            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
             move_along_y(inst, c, exit_y, cmds);
         }
     }
 
-    // 3) rodar para a direcção final
+    // 3) rodar
     face_to(inst, c, target_dir, cmds);
 
-    // 4) alinhar X final
+    // 4) alinhar para o staging EXATO (agora já com footprint final)
     move_along_x(inst, c, target_bl.x, cmds);
+    move_along_y(inst, c, target_bl.y, cmds);
 }
+
 
 fn go_dispatch_to_storage(
     inst: &Instance,
@@ -303,27 +270,27 @@ fn go_dispatch_to_storage(
     let desired_center = center_from_bl(target_bl, target_dir);
     let bl_before = bl_from_center(desired_center, c.dir);
 
-    // 1) alinhar X fora do yard (pré-rotação)
+    // 1) alinhar X na orientação atual
     move_along_x(inst, c, bl_before.x, cmds);
 
-    // 2) se vamos rodar para horizontal e estivermos no yard, sair verticalmente antes
-    if (target_dir == Direction::Left || target_dir == Direction::Right) && in_yard(inst, c.bl, c.dir) {
+    // 2) se vamos ficar horizontais e estamos no yard, sair antes (defensivo)
+    if is_horizontal(target_dir) && in_yard(inst, c.bl, c.dir) {
         if let Some(yard) = inst.yard_rect {
             let up_y = yard.y2 + 1;
             let down_y = yard.y1 - LONG;
-            let dist_up = (c.bl.y - up_y).abs();
-            let dist_down = (c.bl.y - down_y).abs();
-            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
             move_along_y(inst, c, exit_y, cmds);
         }
     }
 
-    // 3) rodar para a direção final
+    // 3) rodar
     face_to(inst, c, target_dir, cmds);
 
-    // 4) entrar no yard movendo verticalmente
+    // 4) alinhar staging EXATO na orientação final
+    move_along_x(inst, c, target_bl.x, cmds);
     move_along_y(inst, c, target_bl.y, cmds);
 }
+
 
 pub fn go_to_pose(
     inst: &Instance,
@@ -333,82 +300,55 @@ pub fn go_to_pose(
     cmds: &mut Vec<Command>,
 ) {
     let yard_opt = inst.yard_rect;
-    let changes_footprint =
-        (is_vertical(c.dir) && is_horizontal(target_dir)) ||
-        (is_horizontal(c.dir) && is_vertical(target_dir));
+
+    // centro desejado na pose final
+    let desired_center = center_from_bl(target_bl, target_dir);
+
+    // BL equivalente na orientação atual (para depois rodar sem deslocar staging)
+    let bl_before = bl_from_center(desired_center, c.dir);
 
     if yard_opt.is_none() {
+        move_along_x(inst, c, bl_before.x, cmds);
+        move_along_y(inst, c, bl_before.y, cmds);
+        face_to(inst, c, target_dir, cmds);
+
+        // garantir staging exato
         move_along_x(inst, c, target_bl.x, cmds);
         move_along_y(inst, c, target_bl.y, cmds);
-        face_to(inst, c, target_dir, cmds);
         return;
     }
 
     let start_in_yard  = in_yard(inst, c.bl, c.dir);
     let target_in_yard = in_yard(inst, target_bl, target_dir);
 
-    // STORAGE (dentro do yard) → DISPATCH (fora)
     if start_in_yard && !target_in_yard {
         go_storage_to_dispatch(inst, c, target_bl, target_dir, cmds);
-        // garantir orientação final
-        face_to(inst, c, target_dir, cmds);
         return;
     }
 
-    // DISPATCH (fora) → STORAGE (dentro do yard)
     if !start_in_yard && target_in_yard {
         go_dispatch_to_storage(inst, c, target_bl, target_dir, cmds);
-        // garantir orientação final
-        face_to(inst, c, target_dir, cmds);
         return;
     }
 
-    // Caso genérico:
-    move_along_x(inst, c, target_bl.x, cmds);
-    move_along_y(inst, c, target_bl.y, cmds);
+    // Caso genérico: alinhar para bl_before, rodar, e só no fim target_bl exato
+    move_along_x(inst, c, bl_before.x, cmds);
+    move_along_y(inst, c, bl_before.y, cmds);
 
-    // Se estamos no yard e precisamos ficar horizontal, sair antes (regra: sem horizontal no yard)
-    if (target_dir == Direction::Left || target_dir == Direction::Right)
-        && (c.dir == Direction::Up || c.dir == Direction::Down)
-        && in_yard(inst, c.bl, c.dir)
-    {
+    // se estamos no yard e precisamos ficar horizontais, sair antes (face_to também trata, mas deixo defensivo)
+    if in_yard(inst, c.bl, c.dir) && is_horizontal(target_dir) {
         if let Some(yard) = yard_opt {
             let up_y = yard.y2 + 1;
             let down_y = yard.y1 - LONG;
-            let dist_up = (c.bl.y - up_y).abs();
-            let dist_down = (c.bl.y - down_y).abs();
-            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
+            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
             move_along_y(inst, c, exit_y, cmds);
         }
     }
 
-    if changes_footprint {
-        if let Some(yard) = yard_opt {
-            let center = center_from_bl(c.bl, c.dir);
-            let bl_after = bl_from_center(center, target_dir);
-            let predicted = carrier_rect(bl_after, target_dir);
-
-            let mut intersects_storage = false;
-            if is_horizontal(target_dir) {
-                for s in &inst.storages {
-                    if rect_intersects(&predicted, &s.rect) {
-                        intersects_storage = true;
-                        break;
-                    }
-                }
-            }
-
-            if rect_intersects(&predicted, &yard) || intersects_storage {
-                let up_y = yard.y2 + 1;
-                let down_y = yard.y1 - LONG;
-                let dist_up = (c.bl.y - up_y).abs();
-                let dist_down = (c.bl.y - down_y).abs();
-                let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-                move_along_y(inst, c, exit_y, cmds);
-            }
-        }
-    }
-
-    // Garantir orientação final pedida
     face_to(inst, c, target_dir, cmds);
+
+    // staging exato (evita 100% “infeasible spot”)
+    move_along_x(inst, c, target_bl.x, cmds);
+    move_along_y(inst, c, target_bl.y, cmds);
 }
+
