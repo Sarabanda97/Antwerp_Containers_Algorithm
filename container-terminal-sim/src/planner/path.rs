@@ -169,6 +169,11 @@ fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
     true
 }
 
+/// Public wrapper for static pose validity (map + yard + storages + dispatch).
+pub fn is_valid_pose(inst: &Instance, bl: Point, dir: Direction) -> bool {
+    is_valid_pos(inst, bl, dir)
+}
+
 // -------------------- A* in space-time --------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -261,7 +266,11 @@ fn run_a_star(
     });
 
     let mut iterations = 0;
-    let max_iterations = 500_000;
+    let max_iterations = 5_000_000;
+
+    // Hard time horizon to keep space-time search finite. Increase if needed.
+    let base_dist = (start_state.x - target_bl.x).abs() + (start_state.y - target_bl.y).abs();
+    let max_time = start_state.time + base_dist * 8 + 5000;
 
     while let Some(current_node) = open_set.pop() {
         iterations += 1;
@@ -330,6 +339,10 @@ fn run_a_star(
                 if intersects_any_storage(inst, &swept) {
                     continue;
                 }
+            }
+
+            if next_s.time > max_time {
+                continue;
             }
 
             // 1) Static validity at target pose
@@ -427,6 +440,70 @@ pub fn go_to_pose(
             }
         }
     } else {
-        panic!("A* No Path Found: Carrier {} Time {}", c.id, c.time);
+        // Fallback: if no path is found (often due to temporary space-time reservations),
+        // try inserting idle time (implicit waiting) and re-run A* with a shifted timeline.
+        let mut waited_total = 0;
+        for attempt in 0..10 {
+            let wait = (attempt + 1) * 10; // 10,20,...,100
+            for _ in 0..wait {
+                c.time += 1;
+                res.reserve(c.time, carrier_rect(c.bl, c.dir));
+            }
+            waited_total += wait;
+
+            if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
+                // execute recursively but without infinite recursion: inline execution
+                for cmd in new_cmds {
+                    cmds.push(cmd.clone());
+                    let cmd_t = match &cmd {
+                        Command::Move { t, .. } => *t,
+                        Command::Face { t, .. } => *t,
+                        Command::Load { t } => *t,
+                        Command::Unload { t } => *t,
+                    };
+                    while c.time < cmd_t {
+                        c.time += 1;
+                        res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                    }
+                    match cmd {
+                        Command::Move { t: _, k } => {
+                            let (dx, dy) = match c.dir {
+                                Direction::Up => (0, 1),
+                                Direction::Down => (0, -1),
+                                Direction::Left => (-1, 0),
+                                Direction::Right => (1, 0),
+                            };
+                            let step = k.signum();
+                            for _ in 0..k.abs() {
+                                let prev = carrier_rect(c.bl, c.dir);
+                                c.time += 1;
+                                c.bl.x += dx * step;
+                                c.bl.y += dy * step;
+                                let now = carrier_rect(c.bl, c.dir);
+                                res.reserve(c.time, prev);
+                                res.reserve(c.time, now);
+                            }
+                        }
+                        Command::Face { t: _, dir } => {
+                            let prev = carrier_rect(c.bl, c.dir);
+                            c.time += 1;
+                            let center2 = center2_from_bl(c.bl, c.dir);
+                            c.dir = dir;
+                            c.bl = bl_from_center2(center2, dir);
+                            let now = carrier_rect(c.bl, c.dir);
+                            res.reserve(c.time, prev);
+                            res.reserve(c.time, now);
+                        }
+                        _ => {}
+                    }
+                }
+                return;
+            }
+        }
+
+        panic!(
+            "A* No Path Found after waiting {}s: carrier {} time {} -> target bl=({},{}), dir={:?}",
+            waited_total, c.id, c.time, target_bl.x, target_bl.y, target_dir
+        );
     }
 }

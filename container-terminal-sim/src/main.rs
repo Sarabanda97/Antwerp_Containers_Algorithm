@@ -1,4 +1,4 @@
-﻿use container_terminal_sim::{
+use container_terminal_sim::{
     parser::parse_instance,
     geometry::enrich_instance_geometry,
     planner::simple::plan_all_demands_multi,
@@ -6,6 +6,7 @@
 };
 use std::path::Path;
 use std::fs;
+use std::env;
 
 fn main() -> anyhow::Result<()> {
     fn process(path_in: &Path, path_out: &Path) -> anyhow::Result<()> {
@@ -18,9 +19,22 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     }
 
+    // CLI usage:
+    //   cargo run --release -- <instance_path> <solution_out_path>
+    // If no args are given, we generate solutions for the target instances.
+    let args: Vec<String> = env::args().collect();
+    if args.len() >= 3 {
+        let in_path = Path::new(&args[1]);
+        let out_path = Path::new(&args[2]);
+        println!("[RUN] processing {} -> {}", in_path.display(), out_path.display());
+        process(in_path, out_path)?;
+        println!("[DONE] {}", out_path.display());
+        return Ok(());
+    }
+
     let instances = vec![
-      "../instances/basic_instances/small_basic_01.txt",
-      "../instances/basic_instances/normal_basic_01.txt",
+        "../instances/basic_instances/normal_basic_01.txt",
+        "../instances/basic_instances/large_basic_01.txt",
     ];
 
     let out_dir = Path::new("../solutions/basic_instances");
