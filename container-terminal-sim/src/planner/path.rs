@@ -1,33 +1,67 @@
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
 
-use crate::model::{Direction, Instance, Point, Rect};
+use crate::model::{Direction, Id, Instance, Point, Rect};
 use crate::state::CarrierState;
 
 // -------------------- Reservation Table (dynamic obstacles) --------------------
 
 pub struct ReservationTable {
-    occupied: HashMap<i32, Vec<Rect>>,
+    /// Explicit occupancy per time step.
+    occupied: HashMap<i32, Vec<(Id, Rect)>>,
+    /// Last known pose per carrier (persists forward in time unless overwritten).
+    last: HashMap<Id, (i32, Rect)>,
 }
 
 impl ReservationTable {
     pub fn new() -> Self {
-        Self { occupied: HashMap::new() }
+        Self {
+            occupied: HashMap::new(),
+            last: HashMap::new(),
+        }
     }
 
-    pub fn is_free(&self, t: i32, r: &Rect) -> bool {
+    /// Check if rectangle `r` is collision-free at time `t` for carrier `me`.
+    ///
+    /// - Considers explicit reservations at time `t`.
+    /// - Also treats every other carrier as occupying its *last reserved rectangle*
+    ///   for all future times (important for "idle" carriers, otherwise they
+    ///   disappear from the space-time world and can be collided with).
+    pub fn is_free(&self, t: i32, me: Id, r: &Rect) -> bool {
+        // 1) Explicit reservations at time t.
+        let mut explicit_ids: Vec<Id> = Vec::new();
         if let Some(obstacles) = self.occupied.get(&t) {
-            for obs in obstacles {
-                if rect_intersects(r, obs) {
+            for (cid, obs) in obstacles {
+                explicit_ids.push(*cid);
+                if *cid != me && rect_intersects(r, obs) {
                     return false;
                 }
             }
         }
+
+        // 2) Persistent ("tail") occupancy: if a carrier has no explicit
+        // reservation at time t, assume it stays at its last rectangle.
+        for (cid, (lt, last_r)) in &self.last {
+            if *cid == me {
+                continue;
+            }
+            if *lt < t && !explicit_ids.contains(cid) {
+                if rect_intersects(r, last_r) {
+                    return false;
+                }
+            }
+        }
+
         true
     }
 
-    pub fn reserve(&mut self, t: i32, r: Rect) {
-        self.occupied.entry(t).or_default().push(r);
+    /// Reserve a rectangle for a specific carrier at time `t`.
+    ///
+    /// If multiple reservations happen for the same carrier at the same `t`,
+    /// we keep them all (conservative), and `last` is updated to the last one.
+    pub fn reserve(&mut self, t: i32, carrier_id: Id, r: Rect) {
+        self.occupied.entry(t).or_default().push((carrier_id, r));
+        self.last.insert(carrier_id, (t, r));
     }
 }
 
@@ -244,6 +278,7 @@ fn run_a_star(
     start_c: &CarrierState,
     target_bl: Point,
     target_dir: Direction,
+    me: Id,
     res: &ReservationTable,
 ) -> Option<Vec<Command>> {
     let start_state = State {
@@ -352,7 +387,7 @@ fn run_a_star(
 
             // 2) Dynamic (time) collision check
             let r = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
-            if !res.is_free(next_s.time, &r) {
+            if !res.is_free(next_s.time, me, &r) {
                 continue;
             }
 
@@ -379,7 +414,7 @@ pub fn go_to_pose(
     cmds: &mut Vec<Command>,
     res: &mut ReservationTable,
 ) {
-    if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
+    if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, c.id, res) {
         for cmd in new_cmds {
             cmds.push(cmd.clone());
 
@@ -393,7 +428,7 @@ pub fn go_to_pose(
 
             while c.time < cmd_t {
                 c.time += 1;
-                res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                res.reserve(c.time, c.id, carrier_rect(c.bl, c.dir));
             }
 
             match cmd {
@@ -414,8 +449,8 @@ pub fn go_to_pose(
                         let now = carrier_rect(c.bl, c.dir);
 
                         // Conservative anti-swap / anti-crossing reservation:
-                        res.reserve(c.time, prev);
-                        res.reserve(c.time, now);
+                        // reserve swept area for THIS carrier at this second.
+                        res.reserve(c.time, c.id, sweep_rect(prev, now));
                     }
                 }
 
@@ -429,9 +464,8 @@ pub fn go_to_pose(
 
                     let now = carrier_rect(c.bl, c.dir);
 
-                    // Reserve both shapes during rotation second (conservative)
-                    res.reserve(c.time, prev);
-                    res.reserve(c.time, now);
+                    // Reserve swept area during rotation second (conservative)
+                    res.reserve(c.time, c.id, sweep_rect(prev, now));
                 }
 
                 _ => {
@@ -447,11 +481,11 @@ pub fn go_to_pose(
             let wait = (attempt + 1) * 10; // 10,20,...,100
             for _ in 0..wait {
                 c.time += 1;
-                res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                res.reserve(c.time, c.id, carrier_rect(c.bl, c.dir));
             }
             waited_total += wait;
 
-            if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
+            if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, c.id, res) {
                 // execute recursively but without infinite recursion: inline execution
                 for cmd in new_cmds {
                     cmds.push(cmd.clone());
@@ -463,7 +497,7 @@ pub fn go_to_pose(
                     };
                     while c.time < cmd_t {
                         c.time += 1;
-                        res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                        res.reserve(c.time, c.id, carrier_rect(c.bl, c.dir));
                     }
                     match cmd {
                         Command::Move { t: _, k } => {
@@ -480,8 +514,7 @@ pub fn go_to_pose(
                                 c.bl.x += dx * step;
                                 c.bl.y += dy * step;
                                 let now = carrier_rect(c.bl, c.dir);
-                                res.reserve(c.time, prev);
-                                res.reserve(c.time, now);
+                                res.reserve(c.time, c.id, sweep_rect(prev, now));
                             }
                         }
                         Command::Face { t: _, dir } => {
@@ -491,8 +524,7 @@ pub fn go_to_pose(
                             c.dir = dir;
                             c.bl = bl_from_center2(center2, dir);
                             let now = carrier_rect(c.bl, c.dir);
-                            res.reserve(c.time, prev);
-                            res.reserve(c.time, now);
+                            res.reserve(c.time, c.id, sweep_rect(prev, now));
                         }
                         _ => {}
                     }

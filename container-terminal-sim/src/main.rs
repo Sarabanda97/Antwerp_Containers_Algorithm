@@ -33,7 +33,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     let instances = vec![
+        "../instances/basic_instances/tiny_basic_00.txt",
+        "../instances/basic_instances/tiny_basic_01.txt",
+        "../instances/basic_instances/small_basic_00.txt",
+        "../instances/basic_instances/small_basic_01.txt",
+        "../instances/basic_instances/normal_basic_00.txt",
         "../instances/basic_instances/normal_basic_01.txt",
+        "../instances/basic_instances/large_basic_00.txt",
         "../instances/basic_instances/large_basic_01.txt",
     ];
 

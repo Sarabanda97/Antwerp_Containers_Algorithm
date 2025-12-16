@@ -4,6 +4,12 @@ use crate::model::{Demand, Direction, Id, Instance, Point, Rect};
 use crate::planner::path::{carrier_rect, go_to_pose, is_valid_pose, Command, ReservationTable};
 use crate::state::CarrierState;
 
+#[derive(Clone, Copy, Debug)]
+struct Pose {
+    bl: Point,
+    dir: Direction,
+}
+
 #[derive(Clone, Debug)]
 enum ContainerLocation {
     Storage { storage_id: Id, depth: usize },
@@ -27,6 +33,97 @@ fn rect_intersects(a: &Rect, b: &Rect) -> bool {
     !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
 }
 
+fn rect_contains(outer: &Rect, inner: &Rect) -> bool {
+    inner.x1 >= outer.x1 && inner.y1 >= outer.y1 && inner.x2 <= outer.x2 && inner.y2 <= outer.y2
+}
+
+/// Scan the map for "parking" poses that are:
+/// - valid by the same static validator used by A*
+/// - outside yard (reject if fully contained in yard_rect)
+/// - outside all crane rectangles and dispatch rectangles
+/// - non-overlapping between themselves
+///
+/// We bias towards the periphery (smaller score = closer to border).
+fn compute_parking_poses(inst: &Instance, n: usize) -> Vec<Pose> {
+    let mut candidates: Vec<(i32, Pose, Rect)> = Vec::new();
+
+    // Coarse scan for speed.
+    let step: usize = 4;
+    let w: usize = inst.width.max(0) as usize;
+    let h: usize = inst.height.max(0) as usize;
+
+    // Prefer poses that are easy to reach / align (Down or Right first).
+    let dirs = [Direction::Down, Direction::Right, Direction::Up, Direction::Left];
+
+    for yy in (0..h).step_by(step) {
+        for xx in (0..w).step_by(step) {
+            let bl = Point {
+                x: xx as i32,
+                y: yy as i32,
+            };
+
+            // Choose the first direction that is valid (preference order above).
+            let mut chosen: Option<(Pose, Rect)> = None;
+            for &dir in &dirs {
+                if !is_valid_pose(inst, bl, dir) {
+                    continue;
+                }
+                let r = carrier_rect(bl, dir);
+
+                // Keep parking out of the yard rectangle (traffic zone).
+                if let Some(yard) = inst.yard_rect {
+                    if rect_contains(&yard, &r) {
+                        continue;
+                    }
+                }
+
+                // Avoid cranes and dispatches.
+                if inst.cranes.iter().any(|c| rect_intersects(&r, &c.rect)) {
+                    continue;
+                }
+                if inst.dispatches.iter().any(|d| rect_intersects(&r, &d.rect)) {
+                    continue;
+                }
+
+                // Also avoid sitting on top of storages (even if "straddle" would allow).
+                if inst.storages.iter().any(|s| rect_intersects(&r, &s.rect)) {
+                    continue;
+                }
+
+                chosen = Some((Pose { bl, dir }, r));
+                break;
+            }
+
+            if let Some((pose, r)) = chosen {
+                // Peripheral bias: smaller = closer to border.
+                let dx = (pose.bl.x).min((inst.width - 1) - pose.bl.x);
+                let dy = (pose.bl.y).min((inst.height - 1) - pose.bl.y);
+                let score = dx + dy;
+                candidates.push((score, pose, r));
+            }
+        }
+    }
+
+    // Sort best first (closer to the border).
+    candidates.sort_by_key(|(score, _, _)| *score);
+
+    // Greedy selection with non-overlap constraint.
+    let mut chosen: Vec<(Pose, Rect)> = Vec::new();
+    'outer: for (_, pose, r) in candidates {
+        for (_, rr) in &chosen {
+            if rect_intersects(&r, rr) {
+                continue 'outer;
+            }
+        }
+        chosen.push((pose, r));
+        if chosen.len() >= n {
+            break;
+        }
+    }
+
+    chosen.into_iter().map(|(p, _)| p).collect()
+}
+
 impl<'a> PlanningContext<'a> {
     fn goto_staging(&mut self, target_bl: Point, target_dir: Direction) {
         go_to_pose(self.inst, self.c, target_bl, target_dir, self.cmds, self.res);
@@ -35,7 +132,7 @@ impl<'a> PlanningContext<'a> {
     fn reserve_idle(&mut self, dt: i32) {
         for _ in 0..dt {
             self.c.time += 1;
-            self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+            self.res.reserve(self.c.time, self.c.id, carrier_rect(self.c.bl, self.c.dir));
         }
     }
 
@@ -71,7 +168,7 @@ impl<'a> PlanningContext<'a> {
         self.c.carrying = Some(container_id);
         self.locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id: self.c.id });
 
-        self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+        self.res.reserve(self.c.time, self.c.id, carrier_rect(self.c.bl, self.c.dir));
     }
 
     fn unload_to_dispatch(&mut self, dispatch_id: Id, container_id: Id) {
@@ -90,7 +187,7 @@ impl<'a> PlanningContext<'a> {
         self.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
         self.locs.insert(container_id, ContainerLocation::Dispatch { dispatch_id });
 
-        self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+        self.res.reserve(self.c.time, self.c.id, carrier_rect(self.c.bl, self.c.dir));
     }
 
     fn load_from_storage(&mut self, storage_id: Id, container_id: Id) {
@@ -117,7 +214,7 @@ impl<'a> PlanningContext<'a> {
         self.c.carrying = Some(container_id);
         self.locs.insert(container_id, ContainerLocation::OnCarrier { carrier_id: self.c.id });
 
-        self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+        self.res.reserve(self.c.time, self.c.id, carrier_rect(self.c.bl, self.c.dir));
     }
 
     fn unload_to_storage(&mut self, storage_id: Id, container_id: Id) {
@@ -139,7 +236,7 @@ impl<'a> PlanningContext<'a> {
 
         self.locs.insert(container_id, ContainerLocation::Storage { storage_id, depth });
 
-        self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+        self.res.reserve(self.c.time, self.c.id, carrier_rect(self.c.bl, self.c.dir));
     }
 
     fn find_best_temp_storage(&self, exclude_id: Id) -> Option<Id> {
@@ -271,6 +368,23 @@ fn ensure_outside_crane_and_wait(
     ctx.reserve_idle(dt);
 }
 
+fn go_to_parking(
+    inst: &Instance,
+    carrier: &mut CarrierState,
+    cmds: &mut Vec<Command>,
+    res: &mut ReservationTable,
+    pose: Pose,
+) {
+    // Move to the parking pose (A* + reservations).
+    go_to_pose(inst, carrier, pose.bl, pose.dir, cmds, res);
+
+    // Ensure an explicit reservation at the final parking time.
+    // NOTE: ReservationTable already keeps the last occupancy of each carrier and
+    // treats it as persistent for future times ("tail"), so parked carriers become
+    // permanent obstacles until they move again.
+    res.reserve(carrier.time, carrier.id, carrier_rect(carrier.bl, carrier.dir));
+}
+
 pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
     let mut storage_stacks = inst.storage_stacks.clone();
     let mut dispatch_containers: HashMap<Id, Vec<Id>> = HashMap::new();
@@ -313,7 +427,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
     let mut cmds_by_carrier: HashMap<Id, Vec<Command>> = HashMap::new();
     for c in &carriers {
         cmds_by_carrier.insert(c.id, Vec::new());
-        reservation_table.reserve(0, carrier_rect(c.bl, c.dir));
+        reservation_table.reserve(0, c.id, carrier_rect(c.bl, c.dir));
     }
 
     // Demands per crane in order
@@ -329,84 +443,196 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         demands_per_crane.entry(0).or_default().extend(inst.demands.clone());
     }
 
-    // Carriers per crane
-    let mut carriers_per_crane: HashMap<Id, Vec<usize>> = HashMap::new();
-    for (idx, c) in inst.carriers.iter().enumerate() {
-        carriers_per_crane.entry(c.assigned_crane).or_default().push(idx);
+    // ---------------- Dynamic carrier pool per crane (min 2, scale to 3) ----------------
+
+    let min_per_crane: usize = 2;
+    let max_per_crane: usize = 3;
+    let backlog_threshold: usize = 10;
+
+    // Stable crane iteration order.
+    let mut crane_ids: Vec<Id> = inst.cranes.iter().map(|c| c.id).collect();
+    crane_ids.sort();
+
+    // Carrier id -> index in `carriers` vec.
+    let mut carrier_idx_by_id: HashMap<Id, usize> = HashMap::new();
+    for (i, c) in carriers.iter().enumerate() {
+        carrier_idx_by_id.insert(c.id, i);
+    }
+
+    // Parking poses (one per carrier id, deterministically).
+    let n_parking = inst.carriers.len().max(6);
+    let parking_poses = compute_parking_poses(inst, n_parking);
+    let mut parking_assign: HashMap<Id, Pose> = HashMap::new();
+    for (i, c) in inst.carriers.iter().enumerate() {
+        if let Some(p) = parking_poses.get(i) {
+            parking_assign.insert(c.id, *p);
+        }
+    }
+
+    // Initial pool assignment: distribute carriers by id across cranes, ensuring
+    // at least `min_per_crane` active per crane when possible.
+    let mut carrier_ids: Vec<Id> = carriers.iter().map(|c| c.id).collect();
+    carrier_ids.sort();
+
+    let mut active_by_crane: HashMap<Id, Vec<Id>> = HashMap::new();
+    for &crane_id in &crane_ids {
+        active_by_crane.insert(crane_id, Vec::new());
+    }
+
+    let mut idle_pool: Vec<Id> = Vec::new();
+    let mut it = carrier_ids.into_iter();
+    for &crane_id in &crane_ids {
+        for _ in 0..min_per_crane {
+            if let Some(cid) = it.next() {
+                active_by_crane.get_mut(&crane_id).unwrap().push(cid);
+            }
+        }
+    }
+    while let Some(cid) = it.next() {
+        idle_pool.push(cid);
+    }
+
+    // Park carriers that start as idle (move them to a safe peripheral pose).
+    for &cid in &idle_pool {
+        let idx = *carrier_idx_by_id.get(&cid).expect("missing carrier index");
+        let pose = *parking_assign
+            .get(&cid)
+            .unwrap_or_else(|| parking_poses.first().expect("no parking poses computed"));
+        let cmds = cmds_by_carrier.get_mut(&cid).unwrap();
+        go_to_parking(inst, &mut carriers[idx], cmds, &mut reservation_table, pose);
     }
 
     // Crane time synchronization
     let mut crane_time: HashMap<Id, i32> = HashMap::new();
-    for crane in &inst.cranes {
-        crane_time.insert(crane.id, 0);
+    for &crane_id in &crane_ids {
+        crane_time.insert(crane_id, 0);
     }
 
-    // Per-crane demand pointer
+    // Fairness tracking
+    let mut jobs_done: HashMap<Id, i32> = HashMap::new();
+    for c in &carriers {
+        jobs_done.insert(c.id, 0);
+    }
+    let mut last_used: HashMap<Id, Id> = HashMap::new();
+
+    // Per-crane demand pointer (default 0)
     let mut ptr: HashMap<Id, usize> = HashMap::new();
-    for (crane_id, demands) in &demands_per_crane {
-        ptr.insert(*crane_id, 0);
-        if demands.is_empty() {
-            crane_time.insert(*crane_id, 0);
+    for &crane_id in &crane_ids {
+        ptr.insert(crane_id, 0);
+    }
+
+    // Estimate the next required pose for a demand (only for scheduling heuristics).
+    fn estimate_target_pose(
+        inst: &Instance,
+        demand: &Demand,
+        locs: &HashMap<Id, ContainerLocation>,
+        storage_idx: &HashMap<Id, usize>,
+        dispatch_idx: &HashMap<Id, usize>,
+    ) -> Pose {
+        match *demand {
+            Demand::Unload { dispatch_id, .. } => {
+                let di = *dispatch_idx.get(&dispatch_id).unwrap();
+                let d = &inst.dispatches[di];
+                Pose { bl: d.staging_bl.unwrap(), dir: d.staging_dir.unwrap() }
+            }
+            Demand::Load { dispatch_id, container_id } => {
+                if let Some(loc) = locs.get(&container_id) {
+                    match *loc {
+                        ContainerLocation::Storage { storage_id, .. } => {
+                            let si = *storage_idx.get(&storage_id).unwrap();
+                            let s = &inst.storages[si];
+                            return Pose { bl: s.staging_bl.unwrap(), dir: s.staging_dir.unwrap() };
+                        }
+                        ContainerLocation::Dispatch { dispatch_id: d2 } => {
+                            let di = *dispatch_idx.get(&d2).unwrap();
+                            let d = &inst.dispatches[di];
+                            return Pose { bl: d.staging_bl.unwrap(), dir: d.staging_dir.unwrap() };
+                        }
+                        ContainerLocation::OnCarrier { .. } => {}
+                    }
+                }
+                // Fallback: target the dispatch.
+                let di = *dispatch_idx.get(&dispatch_id).unwrap();
+                let d = &inst.dispatches[di];
+                Pose { bl: d.staging_bl.unwrap(), dir: d.staging_dir.unwrap() }
+            }
         }
     }
 
-    // Helper: score carrier for next demand
-    let score_for = |carrier: &CarrierState, crane_id: Id, demand: &Demand, ready_t: i32| -> i32 {
-        let t0 = carrier.time.max(ready_t);
-        let (tx, ty) = match demand {
-            Demand::Unload { dispatch_id, .. } => {
-                let di = *dispatch_idx.get(dispatch_id).unwrap();
-                let bl = inst.dispatches[di].staging_bl.unwrap();
-                (bl.x, bl.y)
-            }
-            Demand::Load { dispatch_id, .. } => {
-                let di = *dispatch_idx.get(dispatch_id).unwrap();
-                let bl = inst.dispatches[di].staging_bl.unwrap();
-                (bl.x, bl.y)
-            }
-        };
-        let dist = (carrier.bl.x - tx).abs() + (carrier.bl.y - ty).abs();
-        t0 + dist
-    };
-
-    // Main scheduling loop: process each crane's ordered demands, but choose carriers dynamically.
+    // Main scheduling loop: for each crane, always keep at least 2 carriers active (when possible),
+    // and scale to 3 if backlog is large and there is an idle carrier available.
     loop {
         let mut any_left = false;
 
-        for (crane_id, demands) in demands_per_crane.iter() {
-            let i = *ptr.get(crane_id).unwrap_or(&0);
+        for &crane_id in &crane_ids {
+            let demands = match demands_per_crane.get(&crane_id) {
+                Some(v) if !v.is_empty() => v,
+                _ => continue,
+            };
+
+            let i = *ptr.get(&crane_id).unwrap_or(&0);
             if i >= demands.len() {
                 continue;
             }
             any_left = true;
 
-            let demand = demands[i].clone();
-            let ready_t = *crane_time.get(crane_id).unwrap_or(&0);
-
-            let carrier_indices = match carriers_per_crane.get(crane_id) {
-                Some(v) if !v.is_empty() => v,
-                _ => continue,
-            };
-
-            // Choose best carrier for this job
-            let mut best_idx = carrier_indices[0];
-            let mut best_score = i32::MAX;
-            for &ci in carrier_indices {
-                let sc = score_for(&carriers[ci], *crane_id, &demand, ready_t);
-                if sc < best_score {
-                    best_score = sc;
-                    best_idx = ci;
+            // Scale up to 3 if needed.
+            let remaining = demands.len() - i;
+            {
+                let active = active_by_crane.get_mut(&crane_id).unwrap();
+                while remaining > backlog_threshold && active.len() < max_per_crane && !idle_pool.is_empty() {
+                    let cid = idle_pool.pop().unwrap();
+                    active.push(cid);
                 }
             }
 
-            // Execute demand with chosen carrier
+            let demand = demands[i].clone();
+            let ready_t = *crane_time.get(&crane_id).unwrap_or(&0);
+            let target = estimate_target_pose(inst, &demand, &locs, &storage_idx, &dispatch_idx);
+
+            // Choose the best active carrier for this demand.
+            let chosen_cid: Id = {
+                let active = active_by_crane.get(&crane_id).unwrap();
+                if active.is_empty() {
+                    continue;
+                }
+                let mut best_cid = active[0];
+                let mut best_score = i32::MAX;
+
+                for &cid in active {
+                    let idx = *carrier_idx_by_id.get(&cid).unwrap();
+                    let c = &carriers[idx];
+
+                    let mut sc = c.time.max(ready_t);
+                    let dist = (c.bl.x - target.bl.x).abs() + (c.bl.y - target.bl.y).abs();
+                    sc += dist;
+
+                    // Fairness: avoid reusing the same carrier for consecutive operations on the same crane.
+                    if last_used.get(&crane_id).copied() == Some(cid) {
+                        sc += 20;
+                    }
+
+                    // Mild load-balancing penalty.
+                    let done = *jobs_done.get(&cid).unwrap_or(&0);
+                    sc += done * 2;
+
+                    if sc < best_score {
+                        best_score = sc;
+                        best_cid = cid;
+                    }
+                }
+
+                best_cid
+            };
+
+            // Execute demand with chosen carrier.
             {
-                let c_id = carriers[best_idx].id;
-                let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
+                let chosen_idx = *carrier_idx_by_id.get(&chosen_cid).unwrap();
+                let cmds = cmds_by_carrier.get_mut(&chosen_cid).unwrap();
 
                 let mut ctx = PlanningContext {
                     inst,
-                    c: &mut carriers[best_idx],
+                    c: &mut carriers[chosen_idx],
                     cmds,
                     storage_stacks: &mut storage_stacks,
                     locs: &mut locs,
@@ -418,14 +644,13 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
                 // Sync with crane time
                 if ctx.c.time < ready_t {
-                    let dt = ready_t - ctx.c.time;
-                    ctx.reserve_idle(dt);
+                    ctx.reserve_idle(ready_t - ctx.c.time);
                 }
 
                 match demand {
                     Demand::Unload { dispatch_id, container_id, storage_id } => {
                         // Ship unload only when carrier is OUTSIDE crane section
-                        ensure_outside_crane_and_wait(inst, *crane_id, &mut ctx, 1);
+                        ensure_outside_crane_and_wait(inst, crane_id, &mut ctx, 1);
 
                         // Now container exists on dispatch (from ship)
                         ctx.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
@@ -466,7 +691,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                         ctx.unload_to_dispatch(dispatch_id, container_id);
 
                         // Ship load only when carrier is OUTSIDE crane section
-                        ensure_outside_crane_and_wait(inst, *crane_id, &mut ctx, 1);
+                        ensure_outside_crane_and_wait(inst, crane_id, &mut ctx, 1);
 
                         // After ship loads, container disappears from dispatch
                         if let Some(vec) = ctx.dispatch_containers.get_mut(&dispatch_id) {
@@ -479,10 +704,41 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                 }
 
                 // Update crane time after operation
-                crane_time.insert(*crane_id, ctx.c.time);
+                crane_time.insert(crane_id, ctx.c.time);
+
+                // Mark this carrier as used
+                *jobs_done.entry(chosen_cid).or_insert(0) += 1;
+                last_used.insert(crane_id, chosen_cid);
             }
 
-            ptr.insert(*crane_id, i + 1);
+            // Advance pointer
+            ptr.insert(crane_id, i + 1);
+
+            // Scale down: if backlog is now small, park extra carriers (keep at least min_per_crane).
+            let after_i = *ptr.get(&crane_id).unwrap_or(&0);
+            let remaining_after = demands.len().saturating_sub(after_i);
+            if remaining_after <= backlog_threshold {
+                // Collect carriers to park (drop to min_per_crane).
+                let mut to_park: Vec<Id> = Vec::new();
+                {
+                    let active = active_by_crane.get_mut(&crane_id).unwrap();
+                    while active.len() > min_per_crane {
+                        if let Some(cid) = active.pop() {
+                            to_park.push(cid);
+                        }
+                    }
+                }
+
+                for cid in to_park {
+                    idle_pool.push(cid);
+                    let idx = *carrier_idx_by_id.get(&cid).unwrap();
+                    let pose = *parking_assign
+                        .get(&cid)
+                        .unwrap_or_else(|| parking_poses.first().expect("no parking poses computed"));
+                    let cmds = cmds_by_carrier.get_mut(&cid).unwrap();
+                    go_to_parking(inst, &mut carriers[idx], cmds, &mut reservation_table, pose);
+                }
+            }
         }
 
         if !any_left {
