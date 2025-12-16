@@ -1,12 +1,14 @@
 pub type Id = i32;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+// Added Hash
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)] 
 pub struct Point { pub x: i32, pub y: i32 }
 
 #[derive(Clone, Copy)]
 pub struct Rect { pub x1: i32, pub y1: i32, pub x2: i32, pub y2: i32 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Added Hash here! Critical for A*
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Direction { Up, Down, Left, Right }
 
 pub struct Crane {
@@ -18,14 +20,14 @@ pub struct Crane {
 pub struct Dispatch {
     pub id: Id,
     pub crane_id: Id,
-    pub rect: Rect,          // 4×2
+    pub rect: Rect,          // 4x2
     pub staging_bl: Option<Point>,
     pub staging_dir: Option<Direction>,
 }
 
 pub struct Storage {
     pub id: Id,
-    pub rect: Rect,          // 2×4
+    pub rect: Rect,          // 2x4
     pub staging_bl: Option<Point>,
     pub staging_dir: Option<Direction>,
 }

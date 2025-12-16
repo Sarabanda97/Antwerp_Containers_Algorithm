@@ -1,5 +1,37 @@
-use crate::model::{Instance, Rect, Point, Direction};
+use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::cmp::Ordering;
+
+use crate::model::{Direction, Instance, Point, Rect};
 use crate::state::CarrierState;
+
+// -------------------- Reservation Table (dynamic obstacles) --------------------
+
+pub struct ReservationTable {
+    occupied: HashMap<i32, Vec<Rect>>,
+}
+
+impl ReservationTable {
+    pub fn new() -> Self {
+        Self { occupied: HashMap::new() }
+    }
+
+    pub fn is_free(&self, t: i32, r: &Rect) -> bool {
+        if let Some(obstacles) = self.occupied.get(&t) {
+            for obs in obstacles {
+                if rect_intersects(r, obs) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    pub fn reserve(&mut self, t: i32, r: Rect) {
+        self.occupied.entry(t).or_default().push(r);
+    }
+}
+
+// -------------------- Commands --------------------
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -9,62 +41,57 @@ pub enum Command {
     Unload { t: i32 },
 }
 
-const SHORT: i32 = 4; // lado curto
-const LONG:  i32 = 8; // lado comprido
+// -------------------- Geometry helpers --------------------
+
+const SHORT: i32 = 4;
+const LONG:  i32 = 8;
 
 fn dims(dir: Direction) -> (i32, i32) {
     match dir {
-        Direction::Up | Direction::Down => (SHORT, LONG),   // 4×8 vertical
-        Direction::Left | Direction::Right => (LONG, SHORT) // 8×4 horizontal
+        Direction::Up | Direction::Down => (SHORT, LONG),        // 4×8 vertical
+        Direction::Left | Direction::Right => (LONG, SHORT),     // 8×4 horizontal
     }
 }
 
-fn center_from_bl(bl: Point, dir: Direction) -> Point {
+/// Center in "half-cell units" (x2,y2) so rotations with even sizes are exact without floats.
+/// 2*center = 2*bl + (w-1, h-1)
+fn center2_from_bl(bl: Point, dir: Direction) -> (i32, i32) {
+    let (w, h) = dims(dir);
+    (2 * bl.x + (w - 1), 2 * bl.y + (h - 1))
+}
+
+fn bl_from_center2(center2: (i32, i32), dir: Direction) -> Point {
     let (w, h) = dims(dir);
     Point {
-        x: bl.x + w / 2,
-        y: bl.y + h / 2,
+        x: (center2.0 - (w - 1)) / 2,
+        y: (center2.1 - (h - 1)) / 2,
     }
 }
 
-fn bl_from_center(center: Point, dir: Direction) -> Point {
+pub fn carrier_rect(bl: Point, dir: Direction) -> Rect {
     let (w, h) = dims(dir);
-    Point {
-        x: center.x - w / 2,
-        y: center.y - h / 2,
-    }
-}
-
-// rect do carrier dado (bl, dir) – inclusivo
-fn carrier_rect(bl: Point, dir: Direction) -> Rect {
-    let (w, h) = dims(dir);
-    Rect {
-        x1: bl.x,
-        y1: bl.y,
-        x2: bl.x + w - 1,
-        y2: bl.y + h - 1,
-    }
+    Rect { x1: bl.x, y1: bl.y, x2: bl.x + w - 1, y2: bl.y + h - 1 }
 }
 
 fn rect_intersects(a: &Rect, b: &Rect) -> bool {
     !(a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1)
 }
 
-fn intersects_any_storage(inst: &Instance, bl: Point, dir: Direction) -> bool {
-    let r = carrier_rect(bl, dir);
-    for s in &inst.storages {
-        if rect_intersects(&r, &s.rect) {
-            return true;
-        }
-    }
-    false
+fn rect_within(r: &Rect, limit: &Rect) -> bool {
+    r.x1 >= limit.x1 && r.y1 >= limit.y1 && r.x2 <= limit.x2 && r.y2 <= limit.y2
 }
 
-fn is_vertical(d: Direction) -> bool {
-    matches!(d, Direction::Up | Direction::Down)
+fn intersects_any_storage(inst: &Instance, r: &Rect) -> bool {
+    inst.storages.iter().any(|s| rect_intersects(r, &s.rect))
 }
-fn is_horizontal(d: Direction) -> bool {
-    matches!(d, Direction::Left | Direction::Right)
+
+fn sweep_rect(a: Rect, b: Rect) -> Rect {
+    Rect {
+        x1: a.x1.min(b.x1),
+        y1: a.y1.min(b.y1),
+        x2: a.x2.max(b.x2),
+        y2: a.y2.max(b.y2),
+    }
 }
 
 fn in_yard(inst: &Instance, bl: Point, dir: Direction) -> bool {
@@ -76,221 +103,260 @@ fn in_yard(inst: &Instance, bl: Point, dir: Direction) -> bool {
     }
 }
 
-// Pequena ajuda para detectar a direcção oposta (para marcha-atrás)
-fn opposite(dir: Direction) -> Direction {
-    match dir {
-        Direction::Up    => Direction::Down,
-        Direction::Down  => Direction::Up,
-        Direction::Left  => Direction::Right,
-        Direction::Right => Direction::Left,
+// -------------------- Output cleanup: merge consecutive moves --------------------
+
+fn compress_moves(cmds: Vec<Command>) -> Vec<Command> {
+    let mut out: Vec<Command> = Vec::new();
+
+    for cmd in cmds {
+        match (out.last_mut(), &cmd) {
+            (Some(Command::Move { t: t0, k: k0 }), Command::Move { t: t1, k: k1 }) => {
+                let end_t0 = *t0 + k0.abs();
+                if end_t0 == *t1 && k0.signum() == k1.signum() {
+                    *k0 += *k1;
+                    continue;
+                }
+                out.push(cmd);
+            }
+            _ => out.push(cmd),
+        }
     }
+
+    out
 }
 
-fn face_to(inst: &Instance, c: &mut CarrierState, new_dir: Direction, cmds: &mut Vec<Command>) {
-    if c.dir == new_dir { return; }
+// -------------------- Static validity (map, yard, storages, dispatch) --------------------
 
-    // RULE: never rotate while in yard. Exit yard first.
-    // This matches: inside yard -> only move / move -k, no faces.
-    if in_yard(inst, c.bl, c.dir) {
-        if let Some(yard) = inst.yard_rect {
-            // pick closest exit vertically (works with vertical dir, and if horizontal appears,
-            // move_along_y will rotate outside-yard only after we exit)
-            let up_y = yard.y2 + 1;
-            let down_y = yard.y1 - LONG;
-            let dist_up = (c.bl.y - up_y).abs();
-            let dist_down = (c.bl.y - down_y).abs();
-            let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-            move_along_y(inst, c, exit_y, cmds);
+fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
+    let r = carrier_rect(bl, dir);
+
+    // 1) Map bounds
+    let map_limit = Rect { x1: 0, y1: 0, x2: inst.width - 1, y2: inst.height - 1 };
+    if !rect_within(&r, &map_limit) {
+        return false;
+    }
+
+    // 1.5) Yard constraint: inside yard you must be vertical (Up/Down)
+    if in_yard(inst, bl, dir) {
+        match dir {
+            Direction::Up | Direction::Down => {}
+            Direction::Left | Direction::Right => return false,
         }
     }
 
-    // Also: checker can reject rotation if we intersect a storage footprint.
-    // So if we still intersect storages, step out first (outside yard).
-    if intersects_any_storage(inst, c.bl, c.dir) {
-        let cur = carrier_rect(c.bl, c.dir);
-        let mut max_y2 = i32::MIN;
-        let mut min_y1 = i32::MAX;
-        let mut max_x2 = i32::MIN;
-        let mut min_x1 = i32::MAX;
-        let mut any = false;
+    // 2) Storages are obstacles, except "straddle" when vertical and aligned (x1 = storage.x1 - 1)
+    let w = r.x2 - r.x1 + 1;
+    let is_carrier_vert = w == 4;
 
-        for s in &inst.storages {
-            if rect_intersects(&cur, &s.rect) {
-                any = true;
-                max_y2 = max_y2.max(s.rect.y2);
-                min_y1 = min_y1.min(s.rect.y1);
-                max_x2 = max_x2.max(s.rect.x2);
-                min_x1 = min_x1.min(s.rect.x1);
+    for s in &inst.storages {
+        if rect_intersects(&r, &s.rect) {
+            if is_carrier_vert && r.x1 == s.rect.x1 - 1 {
+                continue; // allowed straddle lane
             }
+            return false;
         }
+    }
 
-        if any {
-            // Prefer moving along Y for vertical, along X for horizontal.
-            if is_vertical(c.dir) {
-                let up_y = max_y2 + 1;
-                let down_y = min_y1 - LONG;
-                let dist_up = (c.bl.y - up_y).abs();
-                let dist_down = (c.bl.y - down_y).abs();
-                let exit_y = if dist_up <= dist_down { up_y } else { down_y };
-                move_along_y(inst, c, exit_y, cmds);
-            } else {
-                let left_x = min_x1 - LONG;
-                let right_x = max_x2 + 1;
-                let dist_left = (c.bl.x - left_x).abs();
-                let dist_right = (c.bl.x - right_x).abs();
-                let exit_x = if dist_left <= dist_right { left_x } else { right_x };
-                move_along_x(inst, c, exit_x, cmds);
+    // 3) Dispatch rectangles: if vertical, cannot be on top of dispatch
+    if is_carrier_vert {
+        for d in &inst.dispatches {
+            if rect_intersects(&r, &d.rect) {
+                return false;
             }
         }
     }
 
-    // Now rotation is safe.
-    let t = c.time;
-    cmds.push(Command::Face { t, dir: new_dir });
-    c.time += 1;
-
-    // Keep center fixed when changing footprint.
-    let center = center_from_bl(c.bl, c.dir);
-    c.dir = new_dir;
-    c.bl  = bl_from_center(center, c.dir);
+    true
 }
 
+// -------------------- A* in space-time --------------------
 
-// move em frente ou marcha-atrás, consoante o sinal de `steps`
-// duração = |steps|
-fn move_forward(c: &mut CarrierState, steps: i32, cmds: &mut Vec<Command>) {
-    if steps == 0 { return; }
-    let t_start = c.time;
-    let t_end   = t_start + steps.abs();
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct State {
+    x: i32,
+    y: i32,
+    dir: Direction,
+    time: i32,
+}
 
-    cmds.push(Command::Move { t: t_start, k: steps });
-    c.time = t_end;
+#[derive(Clone, Eq, PartialEq)]
+struct Node {
+    cost: i32,      // g
+    heuristic: i32, // h
+    state: State,
+}
 
-    let (dx, dy) = match c.dir {
-        Direction::Up    => (0,  1),
-        Direction::Down  => (0, -1),
-        Direction::Left  => (-1, 0),
-        Direction::Right => (1,  0),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Move(i32),
+    Turn(Direction),
+    Wait,
+}
+
+impl Ord for Node {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (other.cost + other.heuristic).cmp(&(self.cost + self.heuristic))
+    }
+}
+impl PartialOrd for Node {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn manhattan(s: &State, tx: i32, ty: i32) -> i32 {
+    (s.x - tx).abs() + (s.y - ty).abs()
+}
+
+fn reconstruct_path(
+    came_from: &HashMap<State, (State, Action)>,
+    current: State,
+    start: State,
+) -> Vec<Command> {
+    let mut path_cmds = Vec::new();
+    let mut curr = current;
+
+    while curr != start {
+        if let Some((prev, act)) = came_from.get(&curr) {
+            let t = prev.time;
+            match act {
+                Action::Move(k) => path_cmds.push(Command::Move { t, k: *k }),
+                Action::Turn(d) => path_cmds.push(Command::Face { t, dir: *d }),
+                Action::Wait => {}
+            }
+            curr = *prev;
+        } else {
+            break;
+        }
+    }
+
+    path_cmds.reverse();
+    compress_moves(path_cmds)
+}
+
+fn run_a_star(
+    inst: &Instance,
+    start_c: &CarrierState,
+    target_bl: Point,
+    target_dir: Direction,
+    res: &ReservationTable,
+) -> Option<Vec<Command>> {
+    let start_state = State {
+        x: start_c.bl.x,
+        y: start_c.bl.y,
+        dir: start_c.dir,
+        time: start_c.time,
     };
 
-    c.bl.x += dx * steps;
-    c.bl.y += dy * steps;
+    let map_limit = Rect { x1: 0, y1: 0, x2: inst.width - 1, y2: inst.height - 1 };
 
-    println!(
-        "% DEBUG move @ t={}..{} k={} dir={:?} -> bl=({}, {})",
-        t_start, t_end, steps, c.dir, c.bl.x, c.bl.y
-    );
-}
+    let mut open_set = BinaryHeap::new();
+    let mut closed_set = HashSet::new();
+    let mut came_from: HashMap<State, (State, Action)> = HashMap::new();
 
-fn move_along_y(inst: &Instance, c: &mut CarrierState, target_y: i32, cmds: &mut Vec<Command>) {
-    let dy = target_y - c.bl.y;
-    if dy == 0 { return; }
+    open_set.push(Node {
+        cost: 0,
+        heuristic: manhattan(&start_state, target_bl.x, target_bl.y),
+        state: start_state,
+    });
 
-    let desired_dir = if dy > 0 { Direction::Up } else { Direction::Down };
-    let steps = dy.abs();
+    let mut iterations = 0;
+    let max_iterations = 500_000;
 
-    match c.dir {
-        d if d == desired_dir => {
-            move_forward(c, steps, cmds);
+    while let Some(current_node) = open_set.pop() {
+        iterations += 1;
+        if iterations > max_iterations {
+            break;
         }
-        d if d == opposite(desired_dir) => {
-            // marcha-atrás vertical (sem face)
-            move_forward(c, -(steps), cmds);
+
+        let s = current_node.state;
+
+        // Goal
+        if s.x == target_bl.x && s.y == target_bl.y && s.dir == target_dir {
+            return Some(reconstruct_path(&came_from, s, start_state));
         }
-        _ => {
-            // está horizontal → precisa de rodar para um vertical
-            face_to(inst, c, desired_dir, cmds);
-            move_forward(c, steps, cmds);
+
+        if closed_set.contains(&s) {
+            continue;
         }
-    }
-}
+        closed_set.insert(s);
 
-fn move_along_x(inst: &Instance, c: &mut CarrierState, target_x: i32, cmds: &mut Vec<Command>) {
-    let dx = target_x - c.bl.x;
-    if dx == 0 { return; }
+        // Neighbors
+        let mut neighbors: Vec<(State, Action)> = Vec::new();
 
-    let desired_dir = if dx > 0 { Direction::Right } else { Direction::Left };
-    let steps = dx.abs();
+        // 1) Wait
+        neighbors.push((State { time: s.time + 1, ..s }, Action::Wait));
 
-    match c.dir {
-        d if d == desired_dir => {
-            move_forward(c, steps, cmds);
+        // 2) Move (forward / backward)
+        let (dx, dy) = match s.dir {
+            Direction::Up => (0, 1),
+            Direction::Down => (0, -1),
+            Direction::Left => (-1, 0),
+            Direction::Right => (1, 0),
+        };
+        neighbors.push((State { x: s.x + dx, y: s.y + dy, time: s.time + 1, ..s }, Action::Move(1)));
+        neighbors.push((State { x: s.x - dx, y: s.y - dy, time: s.time + 1, ..s }, Action::Move(-1)));
+
+        // 3) Turn (left / right)
+        let center2 = center2_from_bl(Point { x: s.x, y: s.y }, s.dir);
+        let rots = [
+            match s.dir { Direction::Up=>Direction::Left,  Direction::Left=>Direction::Down, Direction::Down=>Direction::Right, Direction::Right=>Direction::Up },
+            match s.dir { Direction::Up=>Direction::Right, Direction::Right=>Direction::Down,Direction::Down=>Direction::Left,  Direction::Left=>Direction::Up },
+        ];
+        for new_dir in rots {
+            let new_bl = bl_from_center2(center2, new_dir);
+            neighbors.push((
+                State { x: new_bl.x, y: new_bl.y, dir: new_dir, time: s.time + 1 },
+                Action::Turn(new_dir),
+            ));
         }
-        d if d == opposite(desired_dir) => {
-            // marcha-atrás horizontal (sem face)
-            move_forward(c, -(steps), cmds);
-        }
-        _ => {
-            // está vertical → precisa rodar para horizontal
-            face_to(inst, c, desired_dir, cmds);
-            move_forward(c, steps, cmds);
-        }
-    }
-}
 
-fn go_storage_to_dispatch(
-    inst: &Instance,
-    c: &mut CarrierState,
-    target_bl: Point,
-    target_dir: Direction,
-    cmds: &mut Vec<Command>,
-) {
-    let desired_center = center_from_bl(target_bl, target_dir);
-    let bl_before = bl_from_center(desired_center, c.dir);
+        // Process Neighbors
+        for (next_s, act) in neighbors {
+            if closed_set.contains(&next_s) {
+                continue;
+            }
 
-    // 1) ainda vertical: alinhar Y para o BL que preserva o centro
-    move_along_y(inst, c, bl_before.y, cmds);
+            // --- IMPORTANT: rotation "sweep" check (checker blocks if swept area hits storage) ---
+            if let Action::Turn(_) = act {
+                let before = carrier_rect(Point { x: s.x, y: s.y }, s.dir);
+                let after  = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
+                let swept  = sweep_rect(before, after);
 
-    // 2) se vamos ficar horizontais e ainda estamos no yard, sair antes
-    if is_horizontal(target_dir) && in_yard(inst, c.bl, c.dir) {
-        if let Some(yard) = inst.yard_rect {
-            let up_y = yard.y2 + 1;
-            let down_y = yard.y1 - LONG;
-            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
-            move_along_y(inst, c, exit_y, cmds);
-        }
-    }
+                // keep swept within map too (conservative)
+                if !rect_within(&swept, &map_limit) {
+                    continue;
+                }
+                if intersects_any_storage(inst, &swept) {
+                    continue;
+                }
+            }
 
-    // 3) rodar
-    face_to(inst, c, target_dir, cmds);
+            // 1) Static validity at target pose
+            if !is_valid_pos(inst, Point { x: next_s.x, y: next_s.y }, next_s.dir) {
+                continue;
+            }
 
-    // 4) alinhar para o staging EXATO (agora já com footprint final)
-    move_along_x(inst, c, target_bl.x, cmds);
-    move_along_y(inst, c, target_bl.y, cmds);
-}
+            // 2) Dynamic (time) collision check
+            let r = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
+            if !res.is_free(next_s.time, &r) {
+                continue;
+            }
 
-
-fn go_dispatch_to_storage(
-    inst: &Instance,
-    c: &mut CarrierState,
-    target_bl: Point,
-    target_dir: Direction,
-    cmds: &mut Vec<Command>,
-) {
-    let desired_center = center_from_bl(target_bl, target_dir);
-    let bl_before = bl_from_center(desired_center, c.dir);
-
-    // 1) alinhar X na orientação atual
-    move_along_x(inst, c, bl_before.x, cmds);
-
-    // 2) se vamos ficar horizontais e estamos no yard, sair antes (defensivo)
-    if is_horizontal(target_dir) && in_yard(inst, c.bl, c.dir) {
-        if let Some(yard) = inst.yard_rect {
-            let up_y = yard.y2 + 1;
-            let down_y = yard.y1 - LONG;
-            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
-            move_along_y(inst, c, exit_y, cmds);
+            // Store predecessor (first time)
+            if !came_from.contains_key(&next_s) {
+                came_from.insert(next_s, (s, act));
+                let g = current_node.cost + 1;
+                let h = manhattan(&next_s, target_bl.x, target_bl.y);
+                open_set.push(Node { cost: g, heuristic: h, state: next_s });
+            }
         }
     }
 
-    // 3) rodar
-    face_to(inst, c, target_dir, cmds);
-
-    // 4) alinhar staging EXATO na orientação final
-    move_along_x(inst, c, target_bl.x, cmds);
-    move_along_y(inst, c, target_bl.y, cmds);
+    None
 }
 
+// -------------------- Public interface: execute planned commands and reserve --------------------
 
 pub fn go_to_pose(
     inst: &Instance,
@@ -298,57 +364,69 @@ pub fn go_to_pose(
     target_bl: Point,
     target_dir: Direction,
     cmds: &mut Vec<Command>,
+    res: &mut ReservationTable,
 ) {
-    let yard_opt = inst.yard_rect;
+    if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
+        for cmd in new_cmds {
+            cmds.push(cmd.clone());
 
-    // centro desejado na pose final
-    let desired_center = center_from_bl(target_bl, target_dir);
+            // Sync time with command start (implicit waits)
+            let cmd_t = match &cmd {
+                Command::Move { t, .. } => *t,
+                Command::Face { t, .. } => *t,
+                Command::Load { t } => *t,
+                Command::Unload { t } => *t,
+            };
 
-    // BL equivalente na orientação atual (para depois rodar sem deslocar staging)
-    let bl_before = bl_from_center(desired_center, c.dir);
+            while c.time < cmd_t {
+                c.time += 1;
+                res.reserve(c.time, carrier_rect(c.bl, c.dir));
+            }
 
-    if yard_opt.is_none() {
-        move_along_x(inst, c, bl_before.x, cmds);
-        move_along_y(inst, c, bl_before.y, cmds);
-        face_to(inst, c, target_dir, cmds);
+            match cmd {
+                Command::Move { t: _, k } => {
+                    let (dx, dy) = match c.dir {
+                        Direction::Up => (0, 1),
+                        Direction::Down => (0, -1),
+                        Direction::Left => (-1, 0),
+                        Direction::Right => (1, 0),
+                    };
 
-        // garantir staging exato
-        move_along_x(inst, c, target_bl.x, cmds);
-        move_along_y(inst, c, target_bl.y, cmds);
-        return;
-    }
+                    let step = k.signum();
+                    for _ in 0..k.abs() {
+                        let prev = carrier_rect(c.bl, c.dir);
+                        c.time += 1;
+                        c.bl.x += dx * step;
+                        c.bl.y += dy * step;
+                        let now = carrier_rect(c.bl, c.dir);
 
-    let start_in_yard  = in_yard(inst, c.bl, c.dir);
-    let target_in_yard = in_yard(inst, target_bl, target_dir);
+                        // Conservative anti-swap / anti-crossing reservation:
+                        res.reserve(c.time, prev);
+                        res.reserve(c.time, now);
+                    }
+                }
 
-    if start_in_yard && !target_in_yard {
-        go_storage_to_dispatch(inst, c, target_bl, target_dir, cmds);
-        return;
-    }
+                Command::Face { t: _, dir } => {
+                    let prev = carrier_rect(c.bl, c.dir);
 
-    if !start_in_yard && target_in_yard {
-        go_dispatch_to_storage(inst, c, target_bl, target_dir, cmds);
-        return;
-    }
+                    c.time += 1;
+                    let center2 = center2_from_bl(c.bl, c.dir);
+                    c.dir = dir;
+                    c.bl = bl_from_center2(center2, dir);
 
-    // Caso genérico: alinhar para bl_before, rodar, e só no fim target_bl exato
-    move_along_x(inst, c, bl_before.x, cmds);
-    move_along_y(inst, c, bl_before.y, cmds);
+                    let now = carrier_rect(c.bl, c.dir);
 
-    // se estamos no yard e precisamos ficar horizontais, sair antes (face_to também trata, mas deixo defensivo)
-    if in_yard(inst, c.bl, c.dir) && is_horizontal(target_dir) {
-        if let Some(yard) = yard_opt {
-            let up_y = yard.y2 + 1;
-            let down_y = yard.y1 - LONG;
-            let exit_y = if (c.bl.y - up_y).abs() <= (c.bl.y - down_y).abs() { up_y } else { down_y };
-            move_along_y(inst, c, exit_y, cmds);
+                    // Reserve both shapes during rotation second (conservative)
+                    res.reserve(c.time, prev);
+                    res.reserve(c.time, now);
+                }
+
+                _ => {
+                    // Load/Unload handled in simple.rs
+                }
+            }
         }
+    } else {
+        panic!("A* No Path Found: Carrier {} Time {}", c.id, c.time);
     }
-
-    face_to(inst, c, target_dir, cmds);
-
-    // staging exato (evita 100% “infeasible spot”)
-    move_along_x(inst, c, target_bl.x, cmds);
-    move_along_y(inst, c, target_bl.y, cmds);
 }
-
