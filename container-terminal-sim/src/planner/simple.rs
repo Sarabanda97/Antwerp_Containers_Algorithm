@@ -28,15 +28,39 @@ impl<'a> PlanningContext<'a> {
         go_to_pose(self.inst, self.c, target_bl, target_dir, self.cmds, self.res);
     }
 
+    /// Slow but robust: scan yard stacks to find container if loc-map is missing/stale.
+    fn locate_and_register_in_stacks(&mut self, cid: Id) -> Option<ContainerLocation> {
+        for (s_idx, stack) in self.storage_stacks.iter().enumerate() {
+            if let Some(depth) = stack.iter().position(|&x| x == cid) {
+                let sid = self.inst.storages[s_idx].id;
+                let loc = ContainerLocation::Storage { storage_id: sid, depth };
+                self.locs.insert(cid, loc.clone());
+                return Some(loc);
+            }
+        }
+        None
+    }
+
     fn load_from_dispatch(&mut self, dispatch_id: Id, container_id: Id) {
         let d_idx = *self.dispatch_idx.get(&dispatch_id).expect("dispatch_idx missing");
         let disp = &self.inst.dispatches[d_idx];
         let bl = disp.staging_bl.expect("Dispatch staging_bl missing");
         let dir = disp.staging_dir.expect("Dispatch staging_dir missing");
 
+        // Ensure carrier is outside crane rect before ship operation
+        if let Some(crane_id) = Some(disp.crane_id) {
+            if let Some(cr) = self.inst.cranes.iter().find(|c| c.id == crane_id) {
+                let r = crate::planner::path::carrier_rect(self.c.bl, self.c.dir);
+                if crate::planner::path::rect_intersects(&r, &cr.rect) {
+                    // choose a waiting pose just to the right of the crane
+                    let wait_bl = Point { x: cr.rect.x2 + 1, y: self.c.bl.y };
+                    self.goto_staging(wait_bl, Direction::Right);
+                }
+            }
+        }
+
         self.goto_staging(bl, dir);
 
-        // remove from dispatch buffer if present
         if let Some(vec) = self.dispatch_containers.get_mut(&dispatch_id) {
             if let Some(pos) = vec.iter().position(|&x| x == container_id) {
                 vec.remove(pos);
@@ -51,7 +75,6 @@ impl<'a> PlanningContext<'a> {
         self.locs
             .insert(container_id, ContainerLocation::OnCarrier { carrier_id: self.c.id });
 
-        // Reserve post-action time
         self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
     }
 
@@ -60,6 +83,17 @@ impl<'a> PlanningContext<'a> {
         let disp = &self.inst.dispatches[d_idx];
         let bl = disp.staging_bl.expect("Dispatch staging_bl missing");
         let dir = disp.staging_dir.expect("Dispatch staging_dir missing");
+
+        // Ensure carrier is outside crane rect before ship operation
+        if let Some(crane_id) = Some(disp.crane_id) {
+            if let Some(cr) = self.inst.cranes.iter().find(|c| c.id == crane_id) {
+                let r = crate::planner::path::carrier_rect(self.c.bl, self.c.dir);
+                if crate::planner::path::rect_intersects(&r, &cr.rect) {
+                    let wait_bl = Point { x: cr.rect.x2 + 1, y: self.c.bl.y };
+                    self.goto_staging(wait_bl, Direction::Right);
+                }
+            }
+        }
 
         self.goto_staging(bl, dir);
 
@@ -87,12 +121,12 @@ impl<'a> PlanningContext<'a> {
 
         self.goto_staging(bl, dir);
 
-        // IMPORTANT: ensure we are loading the correct container (must be at top)
+        // Must be top (after ensure_container_accessible)
         let stack = &mut self.storage_stacks[s_idx];
         let top = *stack.last().expect("Storage vazio");
         if top != container_id {
             panic!(
-                "Trying to LOAD container {} but top is {} in storage {} (forgot ensure_container_accessible?)",
+                "Trying to LOAD container {} but top is {} in storage {} (ensure_container_accessible failed?)",
                 container_id, top, storage_id
             );
         }
@@ -148,7 +182,6 @@ impl<'a> PlanningContext<'a> {
 
             if let Some(target_bl) = s.staging_bl {
                 let dist = (target_bl.x - current_pos.x).abs() + (target_bl.y - current_pos.y).abs();
-                // prefer empty stacks (no penalty), but allow non-empty
                 let penalty = if self.storage_stacks[i].len() > 0 { 200 } else { 0 };
                 let score = dist + penalty;
 
@@ -159,18 +192,31 @@ impl<'a> PlanningContext<'a> {
             }
         }
 
-        best_id.expect("FULL YARD: no temp storage with capacity")
+        if let Some(id) = best_id {
+            id
+        } else {
+            // Fallback: pick the storage with smallest stack (even if full)
+            let mut min_len = usize::MAX;
+            let mut pick: Option<Id> = None;
+            for (i, s) in self.inst.storages.iter().enumerate() {
+                if s.id == exclude_id { continue; }
+                let l = self.storage_stacks[i].len();
+                if l < min_len {
+                    min_len = l;
+                    pick = Some(s.id);
+                }
+            }
+            pick.expect("FULL YARD: no storage available at all")
+        }
     }
 
-    /// If target_cid isn't on top, repeatedly move top containers to a temp storage
-    /// until target_cid becomes accessible.
     fn ensure_container_accessible(&mut self, storage_id: Id, target_cid: Id) {
         let s_idx = *self.storage_idx.get(&storage_id).expect("storage_idx missing");
 
         loop {
             let stack_len = self.storage_stacks[s_idx].len();
             if stack_len == 0 {
-                return;
+                panic!("Storage {} empty while trying to access container {}", storage_id, target_cid);
             }
             let top_cid = self.storage_stacks[s_idx][stack_len - 1];
             if top_cid == target_cid {
@@ -179,7 +225,7 @@ impl<'a> PlanningContext<'a> {
 
             let temp_storage_id = self.find_best_temp_storage(storage_id);
 
-            // move top away
+            // Move the blocking container to temporary storage
             self.load_from_storage(storage_id, top_cid);
             self.unload_to_storage(temp_storage_id, top_cid);
         }
@@ -187,18 +233,15 @@ impl<'a> PlanningContext<'a> {
 }
 
 pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
-    // Mutable global state (shared stacks)
     let mut storage_stacks = inst.storage_stacks.clone();
     let mut dispatch_containers: HashMap<Id, Vec<Id>> = HashMap::new();
     let mut locs: HashMap<Id, ContainerLocation> = HashMap::new();
     let mut reservation_table = ReservationTable::new();
 
-    // Init dispatch buffers
     for d in &inst.dispatches {
         dispatch_containers.insert(d.id, Vec::new());
     }
 
-    // Init container locations based on initial stacks
     for (s_idx, stack) in storage_stacks.iter().enumerate() {
         let sid = inst.storages[s_idx].id;
         for (depth, &cid) in stack.iter().enumerate() {
@@ -206,7 +249,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-    // Fast index maps
     let mut storage_idx: HashMap<Id, usize> = HashMap::new();
     for (i, s) in inst.storages.iter().enumerate() {
         storage_idx.insert(s.id, i);
@@ -216,7 +258,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         dispatch_idx.insert(d.id, i);
     }
 
-    // Group demands per crane preserving order (ships->ops)
+    // Build ordered operations per crane
     let mut demands_per_crane: HashMap<Id, Vec<Demand>> = HashMap::new();
     for ship in &inst.ships {
         if let Some(crane) = ship.crane_id {
@@ -226,7 +268,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
             }
         }
     }
-    // Fallback for instances without ships (older format)
     if inst.ships.is_empty() {
         let entry = demands_per_crane.entry(0).or_default();
         for d in &inst.demands {
@@ -234,13 +275,12 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-    // carriers per crane
     let mut carriers_per_crane: HashMap<Id, Vec<usize>> = HashMap::new();
     for (idx, c) in inst.carriers.iter().enumerate() {
         carriers_per_crane.entry(c.assigned_crane).or_default().push(idx);
     }
 
-    // Assign ALL demands of a crane to the first carrier of that crane (preserves strict order)
+    // Strict order: all crane ops go to first carrier of that crane
     let mut tasks_per_carrier: HashMap<Id, Vec<Demand>> = HashMap::new();
     for (crane_id, demands) in demands_per_crane {
         if let Some(carrier_indices) = carriers_per_crane.get(&crane_id) {
@@ -255,7 +295,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
     let mut final_plans: Vec<(Id, Vec<Command>)> = Vec::new();
 
-    // Plan each carrier independently, but share stacks/locs (simple and deterministic)
     for carrier_def in &inst.carriers {
         let mut c = CarrierState {
             id: carrier_def.id,
@@ -285,7 +324,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         for demand in my_demands {
             match demand {
                 Demand::Unload { dispatch_id, container_id, storage_id } => {
-                    // container appears at dispatch (for this operation)
                     ctx.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
                     ctx.locs.insert(container_id, ContainerLocation::Dispatch { dispatch_id });
 
@@ -293,25 +331,30 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                     ctx.unload_to_storage(storage_id, container_id);
                 }
                 Demand::Load { dispatch_id, container_id } => {
-                    // must be in some storage; ensure accessible; then bring to dispatch
-                    if let Some(current_loc) = ctx.locs.get(&container_id).cloned() {
-                        match current_loc {
-                            ContainerLocation::Storage { storage_id, .. } => {
-                                ctx.ensure_container_accessible(storage_id, container_id);
-                                ctx.load_from_storage(storage_id, container_id);
-                                ctx.unload_to_dispatch(dispatch_id, container_id);
-                            }
-                            ContainerLocation::Dispatch { dispatch_id: d } => {
-                                // already at a dispatch: just pick and place at required dispatch
-                                ctx.load_from_dispatch(d, container_id);
-                                ctx.unload_to_dispatch(dispatch_id, container_id);
-                            }
-                            ContainerLocation::OnCarrier { .. } => {
-                                // ignore (shouldn't happen in this simple planner)
-                            }
+                    // robust location lookup
+                    let loc = ctx
+                        .locs
+                        .get(&container_id)
+                        .cloned()
+                        .or_else(|| ctx.locate_and_register_in_stacks(container_id));
+
+                    let loc = loc.unwrap_or_else(|| {
+                        panic!("LOAD requested for container {} but its location is unknown (not in stacks/dispatch)", container_id)
+                    });
+
+                    match loc {
+                        ContainerLocation::Storage { storage_id, .. } => {
+                            ctx.ensure_container_accessible(storage_id, container_id);
+                            ctx.load_from_storage(storage_id, container_id);
+                            ctx.unload_to_dispatch(dispatch_id, container_id);
                         }
-                    } else {
-                        // unknown container id -> ignore
+                        ContainerLocation::Dispatch { dispatch_id: d } => {
+                            ctx.load_from_dispatch(d, container_id);
+                            ctx.unload_to_dispatch(dispatch_id, container_id);
+                        }
+                        ContainerLocation::OnCarrier { .. } => {
+                            panic!("Container {} already on some carrier while processing demand", container_id);
+                        }
                     }
                 }
             }
