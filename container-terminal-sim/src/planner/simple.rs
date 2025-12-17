@@ -35,7 +35,7 @@ impl<'a> PlanningContext<'a> {
     fn reserve_idle(&mut self, dt: i32) {
         for _ in 0..dt {
             self.c.time += 1;
-            self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
+            self.res.reserve_with_linger(self.c.time, carrier_rect(self.c.bl, self.c.dir), 4);
         }
     }
 
@@ -311,10 +311,37 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         .collect();
 
     let mut cmds_by_carrier: HashMap<Id, Vec<Command>> = HashMap::new();
-    for c in &carriers {
-        cmds_by_carrier.insert(c.id, Vec::new());
-        reservation_table.reserve(0, carrier_rect(c.bl, c.dir));
-    }
+
+    let naive_heavy = inst.width > 200 || inst.height > 180 || inst.carriers.len() > 6;
+
+    let mut global_time = 0;
+
+        // Park all carriers first, one at a time, along the top with spacing
+        for (idx, c) in carriers.iter_mut().enumerate() {
+            cmds_by_carrier.insert(c.id, Vec::new());
+            let cmds = cmds_by_carrier.get_mut(&c.id).unwrap();
+
+            // Wait for previous carrier to finish parking
+            c.time = global_time;
+
+            // Park along top edge with 12-unit spacing (4x8 fits)
+            let park_x = 8 + (idx as i32) * 12;
+            let park_y = inst.height - 12;
+            let park_bl = Point { x: park_x.min(inst.width - 5), y: park_y };
+            let park_dir = Direction::Up;
+
+            if c.bl.x != park_bl.x || c.bl.y != park_bl.y || c.dir != park_dir {
+                go_to_pose(inst, c, park_bl, park_dir, cmds, &mut reservation_table);
+            }
+
+            // Buffer between parking movements
+            global_time = c.time + 2;
+        }
+
+        // Start all carriers after parking
+        for c in &mut carriers {
+            c.time = global_time;
+        }
 
     // Demands per crane in order
     let mut demands_per_crane: HashMap<Id, Vec<Demand>> = HashMap::new();
@@ -329,10 +356,14 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         demands_per_crane.entry(0).or_default().extend(inst.demands.clone());
     }
 
-    // Carriers per crane
+    // Carriers per crane (heavy: only first per crane, else all)
     let mut carriers_per_crane: HashMap<Id, Vec<usize>> = HashMap::new();
     for (idx, c) in inst.carriers.iter().enumerate() {
-        carriers_per_crane.entry(c.assigned_crane).or_default().push(idx);
+        if naive_heavy {
+            carriers_per_crane.entry(c.assigned_crane).or_insert_with(|| vec![idx]);
+        } else {
+            carriers_per_crane.entry(c.assigned_crane).or_default().push(idx);
+        }
     }
 
     // Crane time synchronization
@@ -349,6 +380,9 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
             crane_time.insert(*crane_id, 0);
         }
     }
+
+    // NAIVE STRATEGY: Track global time to ensure only one carrier moves at a time
+    let mut max_carrier_time = global_time;
 
     // Helper: score carrier for next demand
     let score_for = |carrier: &CarrierState, crane_id: Id, demand: &Demand, ready_t: i32| -> i32 {
@@ -383,15 +417,15 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
             let demand = demands[i].clone();
             let ready_t = *crane_time.get(crane_id).unwrap_or(&0);
 
-            let carrier_indices = match carriers_per_crane.get(crane_id) {
-                Some(v) if !v.is_empty() => v,
+            let carrier_indices: Vec<usize> = match carriers_per_crane.get(crane_id) {
+                Some(v) if !v.is_empty() => v.clone(),
                 _ => continue,
             };
 
             // Choose best carrier for this job
             let mut best_idx = carrier_indices[0];
             let mut best_score = i32::MAX;
-            for &ci in carrier_indices {
+            for ci in carrier_indices.iter().copied() {
                 let sc = score_for(&carriers[ci], *crane_id, &demand, ready_t);
                 if sc < best_score {
                     best_score = sc;
@@ -403,6 +437,9 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
             {
                 let c_id = carriers[best_idx].id;
                 let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
+
+                // NAIVE STRATEGY: Make carrier wait until all others are done + buffer
+                carriers[best_idx].time = carriers[best_idx].time.max(max_carrier_time + 5);
 
                 let mut ctx = PlanningContext {
                     inst,
@@ -480,6 +517,9 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
                 // Update crane time after operation
                 crane_time.insert(*crane_id, ctx.c.time);
+                
+                // NAIVE STRATEGY: Update global max time after carrier finishes
+                max_carrier_time = max_carrier_time.max(ctx.c.time);
             }
 
             ptr.insert(*crane_id, i + 1);

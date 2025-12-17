@@ -29,6 +29,13 @@ impl ReservationTable {
     pub fn reserve(&mut self, t: i32, r: Rect) {
         self.occupied.entry(t).or_default().push(r);
     }
+
+    /// Reserve with a safety buffer (linger) to prevent tailgating
+    pub fn reserve_with_linger(&mut self, t: i32, r: Rect, linger: i32) {
+        for dt in 0..=linger {
+            self.reserve(t + dt, r);
+        }
+    }
 }
 
 // -------------------- Commands --------------------
@@ -270,7 +277,7 @@ fn run_a_star(
 
     // Hard time horizon to keep space-time search finite. Increase if needed.
     let base_dist = (start_state.x - target_bl.x).abs() + (start_state.y - target_bl.y).abs();
-    let max_time = start_state.time + base_dist * 8 + 5000;
+    let max_time = start_state.time + base_dist * 32 + 50000;
 
     while let Some(current_node) = open_set.pop() {
         iterations += 1;
@@ -326,18 +333,30 @@ fn run_a_star(
                 continue;
             }
 
-            // --- IMPORTANT: rotation "sweep" check (checker blocks if swept area hits storage) ---
-            if let Action::Turn(_) = act {
-                let before = carrier_rect(Point { x: s.x, y: s.y }, s.dir);
-                let after  = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
-                let swept  = sweep_rect(before, after);
+            // --- IMPORTANT: swept area checks to prevent collisions during motion ---
+            let current_rect = carrier_rect(Point { x: s.x, y: s.y }, s.dir);
+            let next_rect = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
 
-                // keep swept within map too (conservative)
-                if !rect_within(&swept, &map_limit) {
-                    continue;
+            match act {
+                Action::Turn(_) => {
+                    // Rotation: check swept area doesn't hit storage
+                    let swept = sweep_rect(current_rect, next_rect);
+                    if !rect_within(&swept, &map_limit) {
+                        continue;
+                    }
+                    if intersects_any_storage(inst, &swept) {
+                        continue;
+                    }
                 }
-                if intersects_any_storage(inst, &swept) {
-                    continue;
+                Action::Move(_) => {
+                    // Movement: check both current and next positions are collision-free
+                    // to prevent head-on swaps and ensure swept area is clear
+                    if !res.is_free(next_s.time, &current_rect) {
+                        continue;
+                    }
+                }
+                Action::Wait => {
+                    // Wait: no additional checks needed
                 }
             }
 
@@ -393,7 +412,7 @@ pub fn go_to_pose(
 
             while c.time < cmd_t {
                 c.time += 1;
-                res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                res.reserve_with_linger(c.time, carrier_rect(c.bl, c.dir), 4);
             }
 
             match cmd {
@@ -414,8 +433,8 @@ pub fn go_to_pose(
                         let now = carrier_rect(c.bl, c.dir);
 
                         // Conservative anti-swap / anti-crossing reservation:
-                        res.reserve(c.time, prev);
-                        res.reserve(c.time, now);
+                        res.reserve_with_linger(c.time, prev, 4);
+                        res.reserve_with_linger(c.time, now, 4);
                     }
                 }
 
@@ -430,8 +449,8 @@ pub fn go_to_pose(
                     let now = carrier_rect(c.bl, c.dir);
 
                     // Reserve both shapes during rotation second (conservative)
-                    res.reserve(c.time, prev);
-                    res.reserve(c.time, now);
+                    res.reserve_with_linger(c.time, prev, 4);
+                    res.reserve_with_linger(c.time, now, 4);
                 }
 
                 _ => {
@@ -443,12 +462,11 @@ pub fn go_to_pose(
         // Fallback: if no path is found (often due to temporary space-time reservations),
         // try inserting idle time (implicit waiting) and re-run A* with a shifted timeline.
         let mut waited_total = 0;
-        for attempt in 0..10 {
-            let wait = (attempt + 1) * 10; // 10,20,...,100
-            for _ in 0..wait {
-                c.time += 1;
-                res.reserve(c.time, carrier_rect(c.bl, c.dir));
-            }
+        for attempt in 0..50 {
+            let wait = (attempt + 1) * 10; // 10,20,...,500
+            // Just advance time without reserving - this is speculative waiting
+            // to see if other carriers clear the path
+            c.time += wait;
             waited_total += wait;
 
             if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
@@ -463,7 +481,7 @@ pub fn go_to_pose(
                     };
                     while c.time < cmd_t {
                         c.time += 1;
-                        res.reserve(c.time, carrier_rect(c.bl, c.dir));
+                        res.reserve_with_linger(c.time, carrier_rect(c.bl, c.dir), 4);
                     }
                     match cmd {
                         Command::Move { t: _, k } => {
@@ -480,8 +498,8 @@ pub fn go_to_pose(
                                 c.bl.x += dx * step;
                                 c.bl.y += dy * step;
                                 let now = carrier_rect(c.bl, c.dir);
-                                res.reserve(c.time, prev);
-                                res.reserve(c.time, now);
+                                res.reserve_with_linger(c.time, prev, 4);
+                                res.reserve_with_linger(c.time, now, 4);
                             }
                         }
                         Command::Face { t: _, dir } => {
@@ -491,8 +509,8 @@ pub fn go_to_pose(
                             c.dir = dir;
                             c.bl = bl_from_center2(center2, dir);
                             let now = carrier_rect(c.bl, c.dir);
-                            res.reserve(c.time, prev);
-                            res.reserve(c.time, now);
+                            res.reserve_with_linger(c.time, prev, 4);
+                            res.reserve_with_linger(c.time, now, 4);
                         }
                         _ => {}
                     }
