@@ -52,7 +52,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         } else { None }
     };
 
-    // ---------------- MAPA ----------------
     while i < lines.len() && !peek_is_number(&lines[i]) { i += 1; }
     let first = next(&mut i, &lines).context("Ficheiro vazio ou sem dimensões")?;
     let mut it = first.split_whitespace();
@@ -61,10 +60,8 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
     if width <= 0 || height <= 0 {
         return Err(anyhow!("Dimensões do mapa inválidas: {}x{}", width, height));
     }
-    // Rect inclusivo => 0..width-1 e 0..height-1
     let map_rect = Rect { x1: 0, y1: 0, x2: width - 1, y2: height - 1 };
 
-    // ---------------- CRANES + DISPATCHES ----------------
     let n_cranes_line = next_number_line(&lines, &mut i)
         .context("Falta número de cranes")?;
     let n_cranes: usize = n_cranes_line.split_whitespace().next().unwrap().parse()?;
@@ -74,10 +71,8 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
 
     let mut crane_ids_seen = HashSet::new();
 
-    // (crane_id, local_dispatch_id) -> global_dispatch_id
     let mut dispatch_key_to_global: HashMap<(i32, i32), i32> = HashMap::new();
 
-    // Para fallback: local_dispatch_id -> global_dispatch_id se for único no ficheiro
     let mut local_to_unique_global: HashMap<i32, i32> = HashMap::new();
     let mut local_is_ambiguous: HashSet<i32> = HashSet::new();
 
@@ -98,7 +93,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             return Err(anyhow!("Crane id duplicado: {}", crane_id));
         }
 
-        // Crane rect (inclusivo)
         let crane_rect = Rect { x1: nums[1], y1: nums[2], x2: nums[3], y2: nums[4] };
         if !rect_within(&crane_rect, &map_rect) {
             return Err(anyhow!(
@@ -133,19 +127,14 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             next_global_dispatch_id += 1;
             dispatch_key_to_global.insert(key, global_did);
 
-            // manter um mapa "local->global" só se não for ambíguo entre cranes
             if local_is_ambiguous.contains(&local_did) {
-                // já é ambíguo, ignora
             } else if let Some(prev) = local_to_unique_global.get(&local_did).copied() {
-                // repetiu noutro crane => ambíguo
                 local_to_unique_global.remove(&local_did);
                 local_is_ambiguous.insert(local_did);
-                // prev e global_did ficam acessíveis apenas via (crane,local)
             } else {
                 local_to_unique_global.insert(local_did, global_did);
             }
 
-            // Dispatch rect 4x2 (inclusivo)
             let rect_d = Rect { x1: x, y1: y, x2: x + 3, y2: y + 1 };
 
             if !rect_within(&rect_d, &map_rect) {
@@ -183,7 +172,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         cranes.push(Crane { id: crane_id, rect: crane_rect, dispatch_ids: crane_dispatch_ids });
     }
 
-    // ---------------- STORAGES ----------------
     let n_stor_line = next_number_line(&lines, &mut i)
         .context("Falta número de storages")?;
     let n_stor: usize = n_stor_line.split_whitespace().next().unwrap().parse()?;
@@ -218,7 +206,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         storages.push(Storage { id, rect, staging_bl: None, staging_dir: None });
     }
 
-    // ---------------- CARRIERS ----------------
     let n_car_line = next_number_line(&lines, &mut i)
         .context("Falta número de carriers")?;
     let n_car: usize = n_car_line.split_whitespace().next().unwrap().parse()?;
@@ -252,7 +239,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         });
     }
 
-    // ---------------- CONTAINERS INICIAIS ----------------
     let n_cont_line = next_number_line(&lines, &mut i)
         .context("Falta número de containers iniciais")?;
     let n_cont: usize = n_cont_line.split_whitespace().next().unwrap().parse()?;
@@ -285,7 +271,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
         }
     }
 
-    // ---------------- DEMANDS ----------------
     let mut demands: Vec<Demand> = Vec::new();
     let mut ships: Vec<ShipBlock> = Vec::new();
     let mut total_new_containers: Option<i32> = None;
@@ -302,7 +287,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
             ));
         }
 
-        // fallback: se não houver 'demand crane', só aceitamos se esse local_did for único no ficheiro
         if let Some(g) = local_to_unique_global.get(&local_dispatch_id).copied() {
             return Ok(g);
         }
@@ -336,7 +320,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                 }
                 current_crane = Some(cid);
 
-                // a linha "1 0" (nships + ids) pode existir; valida mas não precisas usar
                 let saved_i = i;
                 if let Some(nline) = next_number_line(&lines, &mut i) {
                     let mut it = nline.split_whitespace();
@@ -407,7 +390,6 @@ pub fn parse_instance(path: &str) -> Result<Instance> {
                 ships.push(block);
             }
 
-            // suportar ficheiros que tenham linhas "Unload ..." / "Load ..." soltas
             "unload" => {
                 if toks.len() < 4 { return Err(anyhow!("Linha unload inválida: {}", l)); }
                 let local_dispatch_id: i32 = toks[1].parse()?;
