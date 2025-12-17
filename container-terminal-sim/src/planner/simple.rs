@@ -438,8 +438,8 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                 let c_id = carriers[best_idx].id;
                 let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
 
-                // NAIVE STRATEGY: Make carrier wait until all others are done + buffer
-                carriers[best_idx].time = carriers[best_idx].time.max(max_carrier_time + 5);
+                // NAIVE STRATEGY: Make carrier wait until all others are done + big buffer
+                carriers[best_idx].time = carriers[best_idx].time.max(max_carrier_time + 200);
 
                 let mut ctx = PlanningContext {
                     inst,
@@ -527,6 +527,24 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
         if !any_left {
             break;
+        }
+    }
+
+    // After all demands complete, send each carrier back to its parking spot
+    for (idx, carrier_def) in inst.carriers.iter().enumerate() {
+        let c_id = carrier_def.id;
+        let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
+        
+        // Get parking position for this carrier
+        let park_x = 8 + (idx as i32) * 12;
+        let park_y = inst.height - 12;
+        let target = Point { x: park_x, y: park_y };
+        let target_dir = Direction::Up;
+        
+        // Only send back if not already there
+        let current_carrier = &mut carriers[idx];
+        if current_carrier.bl != target || current_carrier.dir != target_dir {
+            go_to_pose(inst, current_carrier, target, target_dir, cmds, &mut reservation_table);
         }
     }
 
