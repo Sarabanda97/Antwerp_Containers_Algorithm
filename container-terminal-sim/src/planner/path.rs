@@ -4,7 +4,6 @@ use std::cmp::Ordering;
 use crate::model::{Direction, Instance, Point, Rect};
 use crate::state::CarrierState;
 
-// -------------------- Reservation Table (dynamic obstacles) --------------------
 
 pub struct ReservationTable {
     occupied: HashMap<i32, Vec<Rect>>,
@@ -30,7 +29,7 @@ impl ReservationTable {
         self.occupied.entry(t).or_default().push(r);
     }
 
-    /// Reserve with a safety buffer (linger) to prevent tailgating
+    
     pub fn reserve_with_linger(&mut self, t: i32, r: Rect, linger: i32) {
         for dt in 0..=linger {
             self.reserve(t + dt, r);
@@ -38,7 +37,7 @@ impl ReservationTable {
     }
 }
 
-// -------------------- Commands --------------------
+
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -48,20 +47,19 @@ pub enum Command {
     Unload { t: i32 },
 }
 
-// -------------------- Geometry helpers --------------------
+
 
 const SHORT: i32 = 4;
 const LONG:  i32 = 8;
 
 fn dims(dir: Direction) -> (i32, i32) {
     match dir {
-        Direction::Up | Direction::Down => (SHORT, LONG),        // 4×8 vertical
-        Direction::Left | Direction::Right => (LONG, SHORT),     // 8×4 horizontal
+        Direction::Up | Direction::Down => (SHORT, LONG),        
+        Direction::Left | Direction::Right => (LONG, SHORT),     
     }
 }
 
-/// Center in "half-cell units" (x2,y2) so rotations with even sizes are exact without floats.
-/// 2*center = 2*bl + (w-1, h-1)
+
 fn center2_from_bl(bl: Point, dir: Direction) -> (i32, i32) {
     let (w, h) = dims(dir);
     (2 * bl.x + (w - 1), 2 * bl.y + (h - 1))
@@ -110,7 +108,7 @@ fn in_yard(inst: &Instance, bl: Point, dir: Direction) -> bool {
     }
 }
 
-// -------------------- Output cleanup: merge consecutive moves --------------------
+
 
 fn compress_moves(cmds: Vec<Command>) -> Vec<Command> {
     let mut out: Vec<Command> = Vec::new();
@@ -132,18 +130,17 @@ fn compress_moves(cmds: Vec<Command>) -> Vec<Command> {
     out
 }
 
-// -------------------- Static validity (map, yard, storages, dispatch) --------------------
+
 
 fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
     let r = carrier_rect(bl, dir);
 
-    // 1) Map bounds
+    
     let map_limit = Rect { x1: 0, y1: 0, x2: inst.width - 1, y2: inst.height - 1 };
     if !rect_within(&r, &map_limit) {
         return false;
     }
 
-    // 1.5) Yard constraint: inside yard you must be vertical (Up/Down)
     if in_yard(inst, bl, dir) {
         match dir {
             Direction::Up | Direction::Down => {}
@@ -151,20 +148,19 @@ fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
         }
     }
 
-    // 2) Storages are obstacles, except "straddle" when vertical and aligned (x1 = storage.x1 - 1)
+    
     let w = r.x2 - r.x1 + 1;
     let is_carrier_vert = w == 4;
 
     for s in &inst.storages {
         if rect_intersects(&r, &s.rect) {
             if is_carrier_vert && r.x1 == s.rect.x1 - 1 {
-                continue; // allowed straddle lane
+                continue; 
             }
             return false;
         }
     }
 
-    // 3) Dispatch rectangles: if vertical, cannot be on top of dispatch
     if is_carrier_vert {
         for d in &inst.dispatches {
             if rect_intersects(&r, &d.rect) {
@@ -176,12 +172,10 @@ fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
     true
 }
 
-/// Public wrapper for static pose validity (map + yard + storages + dispatch).
 pub fn is_valid_pose(inst: &Instance, bl: Point, dir: Direction) -> bool {
     is_valid_pos(inst, bl, dir)
 }
 
-// -------------------- A* in space-time --------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct State {
@@ -193,8 +187,8 @@ struct State {
 
 #[derive(Clone, Eq, PartialEq)]
 struct Node {
-    cost: i32,      // g
-    heuristic: i32, // h
+    cost: i32,      
+    heuristic: i32, 
     state: State,
 }
 
@@ -275,7 +269,6 @@ fn run_a_star(
     let mut iterations = 0;
     let max_iterations = 5_000_000;
 
-    // Hard time horizon to keep space-time search finite. Increase if needed.
     let base_dist = (start_state.x - target_bl.x).abs() + (start_state.y - target_bl.y).abs();
     let max_time = start_state.time + base_dist * 32 + 50000;
 
@@ -287,7 +280,6 @@ fn run_a_star(
 
         let s = current_node.state;
 
-        // Goal
         if s.x == target_bl.x && s.y == target_bl.y && s.dir == target_dir {
             return Some(reconstruct_path(&came_from, s, start_state));
         }
@@ -297,13 +289,10 @@ fn run_a_star(
         }
         closed_set.insert(s);
 
-        // Neighbors
         let mut neighbors: Vec<(State, Action)> = Vec::new();
 
-        // 1) Wait
         neighbors.push((State { time: s.time + 1, ..s }, Action::Wait));
 
-        // 2) Move (forward / backward)
         let (dx, dy) = match s.dir {
             Direction::Up => (0, 1),
             Direction::Down => (0, -1),
@@ -313,7 +302,6 @@ fn run_a_star(
         neighbors.push((State { x: s.x + dx, y: s.y + dy, time: s.time + 1, ..s }, Action::Move(1)));
         neighbors.push((State { x: s.x - dx, y: s.y - dy, time: s.time + 1, ..s }, Action::Move(-1)));
 
-        // 3) Turn (left / right)
         let center2 = center2_from_bl(Point { x: s.x, y: s.y }, s.dir);
         let rots = [
             match s.dir { Direction::Up=>Direction::Left,  Direction::Left=>Direction::Down, Direction::Down=>Direction::Right, Direction::Right=>Direction::Up },
@@ -327,19 +315,16 @@ fn run_a_star(
             ));
         }
 
-        // Process Neighbors
         for (next_s, act) in neighbors {
             if closed_set.contains(&next_s) {
                 continue;
             }
 
-            // --- IMPORTANT: swept area checks to prevent collisions during motion ---
             let current_rect = carrier_rect(Point { x: s.x, y: s.y }, s.dir);
             let next_rect = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
 
             match act {
                 Action::Turn(_) => {
-                    // Rotation: check swept area doesn't hit storage
                     let swept = sweep_rect(current_rect, next_rect);
                     if !rect_within(&swept, &map_limit) {
                         continue;
@@ -349,14 +334,12 @@ fn run_a_star(
                     }
                 }
                 Action::Move(_) => {
-                    // Movement: check both current and next positions are collision-free
-                    // to prevent head-on swaps and ensure swept area is clear
                     if !res.is_free(next_s.time, &current_rect) {
                         continue;
                     }
                 }
                 Action::Wait => {
-                    // Wait: no additional checks needed
+                    
                 }
             }
 
@@ -364,18 +347,16 @@ fn run_a_star(
                 continue;
             }
 
-            // 1) Static validity at target pose
+           
             if !is_valid_pos(inst, Point { x: next_s.x, y: next_s.y }, next_s.dir) {
                 continue;
             }
 
-            // 2) Dynamic (time) collision check
             let r = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
             if !res.is_free(next_s.time, &r) {
                 continue;
             }
 
-            // Store predecessor (first time)
             if !came_from.contains_key(&next_s) {
                 came_from.insert(next_s, (s, act));
                 let g = current_node.cost + 1;
@@ -388,7 +369,6 @@ fn run_a_star(
     None
 }
 
-// -------------------- Public interface: execute planned commands and reserve --------------------
 
 pub fn go_to_pose(
     inst: &Instance,
@@ -402,7 +382,6 @@ pub fn go_to_pose(
         for cmd in new_cmds {
             cmds.push(cmd.clone());
 
-            // Sync time with command start (implicit waits)
             let cmd_t = match &cmd {
                 Command::Move { t, .. } => *t,
                 Command::Face { t, .. } => *t,
@@ -432,7 +411,6 @@ pub fn go_to_pose(
                         c.bl.y += dy * step;
                         let now = carrier_rect(c.bl, c.dir);
 
-                        // Conservative anti-swap / anti-crossing reservation:
                         res.reserve_with_linger(c.time, prev, 4);
                         res.reserve_with_linger(c.time, now, 4);
                     }
@@ -448,29 +426,22 @@ pub fn go_to_pose(
 
                     let now = carrier_rect(c.bl, c.dir);
 
-                    // Reserve both shapes during rotation second (conservative)
                     res.reserve_with_linger(c.time, prev, 4);
                     res.reserve_with_linger(c.time, now, 4);
                 }
 
                 _ => {
-                    // Load/Unload handled in simple.rs
                 }
             }
         }
     } else {
-        // Fallback: if no path is found (often due to temporary space-time reservations),
-        // try inserting idle time (implicit waiting) and re-run A* with a shifted timeline.
         let mut waited_total = 0;
         for attempt in 0..50 {
             let wait = (attempt + 1) * 10; // 10,20,...,500
-            // Just advance time without reserving - this is speculative waiting
-            // to see if other carriers clear the path
             c.time += wait;
             waited_total += wait;
 
             if let Some(new_cmds) = run_a_star(inst, c, target_bl, target_dir, res) {
-                // execute recursively but without infinite recursion: inline execution
                 for cmd in new_cmds {
                     cmds.push(cmd.clone());
                     let cmd_t = match &cmd {

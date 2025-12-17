@@ -13,15 +13,11 @@ fn main() -> anyhow::Result<()> {
         let mut inst = parse_instance(path_in.to_str().unwrap())?;
         enrich_instance_geometry(&mut inst);
         
-        // USA A FUNÇÃO MULTI
         let plans = plan_all_demands_multi(&inst);
         write_solution(path_out.to_str().unwrap(), &plans)?;
         Ok(())
     }
 
-    // CLI usage:
-    //   cargo run --release -- <instance_path> <solution_out_path>
-    // If no args are given, we generate solutions for the target instances.
     let args: Vec<String> = env::args().collect();
     if args.len() >= 3 {
         let in_path = Path::new(&args[1]);
