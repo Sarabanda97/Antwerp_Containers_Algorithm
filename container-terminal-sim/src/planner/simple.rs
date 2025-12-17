@@ -142,6 +142,8 @@ impl<'a> PlanningContext<'a> {
         self.res.reserve(self.c.time, carrier_rect(self.c.bl, self.c.dir));
     }
 
+    /// Find best temporary storage for container reshuffling.
+    /// Prioritizes: closer distance, emptier stacks, capacity limit of 2.
     fn find_best_temp_storage(&self, exclude_id: Id) -> Option<Id> {
         let current_pos = self.c.bl;
         let mut best_id: Option<Id> = None;
@@ -167,6 +169,7 @@ impl<'a> PlanningContext<'a> {
         best_id
     }
 
+    /// Ensure target container is on top of its stack by moving blocking containers to temp storage.
     fn ensure_container_accessible(&mut self, storage_id: Id, target_cid: Id) {
         let s_idx = *self.storage_idx.get(&storage_id).expect("storage_idx missing");
 
@@ -183,6 +186,7 @@ impl<'a> PlanningContext<'a> {
             let temp_storage_id = match self.find_best_temp_storage(storage_id) {
                 Some(id) => id,
                 None => {
+                    // Fallback: pick any other storage if all are near-full
                     self.inst
                         .storages
                         .iter()
@@ -198,6 +202,8 @@ impl<'a> PlanningContext<'a> {
     }
 }
 
+/// Select waiting position outside crane section (prevents blocking ship operations).
+/// Tests positions above/below (vertical) and left/right (horizontal), picks closest valid pose.
 fn choose_outside_crane_pose(inst: &Instance, crane_id: Id, from: &CarrierState) -> (Point, Direction) {
     let crane = inst.cranes.iter().find(|c| c.id == crane_id).expect("crane not found");
     let cr = crane.rect;
@@ -302,32 +308,36 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
     let mut cmds_by_carrier: HashMap<Id, Vec<Command>> = HashMap::new();
 
+    // Naive strategy classification: large/complex instances use restricted carrier set
     let naive_heavy = inst.width > 200 || inst.height > 180 || inst.carriers.len() > 6;
 
     let mut global_time = 0;
 
-        for (idx, c) in carriers.iter_mut().enumerate() {
-            cmds_by_carrier.insert(c.id, Vec::new());
-            let cmds = cmds_by_carrier.get_mut(&c.id).unwrap();
+    // Phase 1: Park all carriers sequentially at top edge (y = height - 12) with 12-unit spacing
+    for (idx, c) in carriers.iter_mut().enumerate() {
+        cmds_by_carrier.insert(c.id, Vec::new());
+        let cmds = cmds_by_carrier.get_mut(&c.id).unwrap();
 
-            c.time = global_time;
+        c.time = global_time;
 
-            let park_x = 8 + (idx as i32) * 12;
-            let park_y = inst.height - 12;
-            let park_bl = Point { x: park_x.min(inst.width - 5), y: park_y };
-            let park_dir = Direction::Up;
+        let park_x = 8 + (idx as i32) * 12;
+        let park_y = inst.height - 12;
+        let park_bl = Point { x: park_x.min(inst.width - 5), y: park_y };
+        let park_dir = Direction::Up;
 
-            if c.bl.x != park_bl.x || c.bl.y != park_bl.y || c.dir != park_dir {
-                go_to_pose(inst, c, park_bl, park_dir, cmds, &mut reservation_table);
-            }
-
-            global_time = c.time + 2;
+        if c.bl.x != park_bl.x || c.bl.y != park_bl.y || c.dir != park_dir {
+            go_to_pose(inst, c, park_bl, park_dir, cmds, &mut reservation_table);
         }
 
-        for c in &mut carriers {
-            c.time = global_time;
-        }
+        // 2-tick buffer between parking operations prevents initial collisions
+        global_time = c.time + 2;
+    }
 
+    for c in &mut carriers {
+        c.time = global_time;
+    }
+
+    // Phase 2: Group demands by crane (ship operations) or use global list (fallback)
     let mut demands_per_crane: HashMap<Id, Vec<Demand>> = HashMap::new();
     if !inst.ships.is_empty() {
         for ship in &inst.ships {
@@ -339,6 +349,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         demands_per_crane.entry(0).or_default().extend(inst.demands.clone());
     }
 
+    // Carrier allocation: heavy instances use only first carrier per crane, others use all
     let mut carriers_per_crane: HashMap<Id, Vec<usize>> = HashMap::new();
     for (idx, c) in inst.carriers.iter().enumerate() {
         if naive_heavy {
@@ -361,13 +372,13 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-    // NAIVE STRATEGY: Track per-crane time so only carriers on SAME crane wait for each other
-    // Carriers from different cranes can move in parallel since they're in separate sections
+    // Per-crane timing: carriers on same crane sequenced, different cranes run in parallel
     let mut max_carrier_time_per_crane: HashMap<Id, i32> = HashMap::new();
     for crane in &inst.cranes {
         max_carrier_time_per_crane.insert(crane.id, global_time);
     }
 
+    // Scheduling heuristic: pick carrier with minimum (ready_time + distance_to_target)
     let score_for = |carrier: &CarrierState, crane_id: Id, demand: &Demand, ready_t: i32| -> i32 {
         let t0 = carrier.time.max(ready_t);
         let (tx, ty) = match demand {
@@ -418,7 +429,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                 let c_id = carriers[best_idx].id;
                 let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
 
-                // NAIVE STRATEGY: Make carrier wait until other carriers on SAME crane are done + buffer
+                // Sequential execution: carrier waits until previous finishes + 200-tick buffer
                 let max_time_this_crane = *max_carrier_time_per_crane.get(crane_id).unwrap_or(&0);
                 carriers[best_idx].time = carriers[best_idx].time.max(max_time_this_crane + 200);
 
@@ -441,15 +452,19 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
 
                 match demand {
                     Demand::Unload { dispatch_id, container_id, storage_id } => {
+                        // Wait outside crane to avoid blocking ship
                         ensure_outside_crane_and_wait(inst, *crane_id, &mut ctx, 1);
 
+                        // Ship delivers container to dispatch area
                         ctx.dispatch_containers.entry(dispatch_id).or_default().push(container_id);
                         ctx.locs.insert(container_id, ContainerLocation::Dispatch { dispatch_id });
 
+                        // Carrier picks up from dispatch and stores in yard
                         ctx.load_from_dispatch(dispatch_id, container_id);
                         ctx.unload_to_storage(storage_id, container_id);
                     }
                     Demand::Load { dispatch_id, container_id } => {
+                        // Locate container in storage or dispatch area
                         let loc = ctx
                             .locs
                             .get(&container_id)
@@ -475,10 +490,13 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                             }
                         }
 
+                        // Carrier delivers to dispatch
                         ctx.unload_to_dispatch(dispatch_id, container_id);
 
+                        // Wait outside crane while ship loads
                         ensure_outside_crane_and_wait(inst, *crane_id, &mut ctx, 1);
 
+                        // Ship takes container (remove from dispatch)
                         if let Some(vec) = ctx.dispatch_containers.get_mut(&dispatch_id) {
                             if let Some(pos) = vec.iter().position(|&x| x == container_id) {
                                 vec.remove(pos);
@@ -488,9 +506,9 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                     }
                 }
 
+                // Update crane readiness and per-crane sequencing time
                 crane_time.insert(*crane_id, ctx.c.time);
                 
-                // NAIVE STRATEGY: Update per-crane max time after carrier finishes
                 max_carrier_time_per_crane.insert(*crane_id, ctx.c.time);
             }
 
@@ -502,7 +520,7 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-    // After all demands complete, send each carrier back to its parking spot
+    // Phase 3: Return carriers to parking positions to clear work areas
     for (idx, carrier_def) in inst.carriers.iter().enumerate() {
         let c_id = carrier_def.id;
         let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();

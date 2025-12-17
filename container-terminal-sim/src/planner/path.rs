@@ -29,15 +29,14 @@ impl ReservationTable {
         self.occupied.entry(t).or_default().push(r);
     }
 
-    
+    /// Reserve cell with temporal safety buffer to prevent tailgating collisions.
+    /// Linger extends reservation for N timesteps to ensure previous carrier clears the area.
     pub fn reserve_with_linger(&mut self, t: i32, r: Rect, linger: i32) {
         for dt in 0..=linger {
             self.reserve(t + dt, r);
         }
     }
 }
-
-
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -49,17 +48,19 @@ pub enum Command {
 
 
 
+// Carrier dimensions: 4×8 when vertical (Up/Down), 8×4 when horizontal (Left/Right)
 const SHORT: i32 = 4;
 const LONG:  i32 = 8;
 
 fn dims(dir: Direction) -> (i32, i32) {
     match dir {
-        Direction::Up | Direction::Down => (SHORT, LONG),        
-        Direction::Left | Direction::Right => (LONG, SHORT),     
+        Direction::Up | Direction::Down => (SHORT, LONG),
+        Direction::Left | Direction::Right => (LONG, SHORT),
     }
 }
 
-
+/// Convert bottom-left to center in doubled coordinates (avoids floats during rotation).
+/// Center formula: 2*center = 2*bl + (w-1, h-1)
 fn center2_from_bl(bl: Point, dir: Direction) -> (i32, i32) {
     let (w, h) = dims(dir);
     (2 * bl.x + (w - 1), 2 * bl.y + (h - 1))
@@ -132,15 +133,18 @@ fn compress_moves(cmds: Vec<Command>) -> Vec<Command> {
 
 
 
+/// Check static validity: map bounds, yard constraint (vertical only), storage/dispatch obstacles.
+/// Allows "straddle" positioning for vertical carriers at x = storage.x - 1.
 fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
     let r = carrier_rect(bl, dir);
 
-    
+    // Map boundary check
     let map_limit = Rect { x1: 0, y1: 0, x2: inst.width - 1, y2: inst.height - 1 };
     if !rect_within(&r, &map_limit) {
         return false;
     }
 
+    // Yard constraint: only vertical carriers allowed inside yard
     if in_yard(inst, bl, dir) {
         match dir {
             Direction::Up | Direction::Down => {}
@@ -148,14 +152,14 @@ fn is_valid_pos(inst: &Instance, bl: Point, dir: Direction) -> bool {
         }
     }
 
-    
     let w = r.x2 - r.x1 + 1;
     let is_carrier_vert = w == 4;
 
+    // Storage collision check with straddle exception
     for s in &inst.storages {
         if rect_intersects(&r, &s.rect) {
             if is_carrier_vert && r.x1 == s.rect.x1 - 1 {
-                continue; 
+                continue; // Allow straddling storage from staging lane
             }
             return false;
         }
@@ -177,6 +181,7 @@ pub fn is_valid_pose(inst: &Instance, bl: Point, dir: Direction) -> bool {
 }
 
 
+// Space-time A* state: (x, y, direction, time)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct State {
     x: i32,
@@ -187,8 +192,8 @@ struct State {
 
 #[derive(Clone, Eq, PartialEq)]
 struct Node {
-    cost: i32,      
-    heuristic: i32, 
+    cost: i32,      // g-cost (actual path length)
+    heuristic: i32, // h-cost (Manhattan distance to goal) 
     state: State,
 }
 
@@ -269,6 +274,7 @@ fn run_a_star(
     let mut iterations = 0;
     let max_iterations = 5_000_000;
 
+    // Time horizon: base distance * 32 (detour allowance) + 50k buffer
     let base_dist = (start_state.x - target_bl.x).abs() + (start_state.y - target_bl.y).abs();
     let max_time = start_state.time + base_dist * 32 + 50000;
 
@@ -289,6 +295,7 @@ fn run_a_star(
         }
         closed_set.insert(s);
 
+        // Generate neighbor states: wait, move forward/backward, rotate left/right
         let mut neighbors: Vec<(State, Action)> = Vec::new();
 
         neighbors.push((State { time: s.time + 1, ..s }, Action::Wait));
@@ -323,6 +330,7 @@ fn run_a_star(
             let current_rect = carrier_rect(Point { x: s.x, y: s.y }, s.dir);
             let next_rect = carrier_rect(Point { x: next_s.x, y: next_s.y }, next_s.dir);
 
+            // Swept-area collision checks prevent head-on swaps and rotation conflicts
             match act {
                 Action::Turn(_) => {
                     let swept = sweep_rect(current_rect, next_rect);
@@ -334,20 +342,19 @@ fn run_a_star(
                     }
                 }
                 Action::Move(_) => {
+                    // Check current position is free to prevent overlaps during movement
                     if !res.is_free(next_s.time, &current_rect) {
                         continue;
                     }
                 }
-                Action::Wait => {
-                    
-                }
+                Action::Wait => {}
             }
 
             if next_s.time > max_time {
                 continue;
             }
 
-           
+            // Static validity (map/obstacles) and dynamic (time-based reservations)
             if !is_valid_pos(inst, Point { x: next_s.x, y: next_s.y }, next_s.dir) {
                 continue;
             }
@@ -405,6 +412,7 @@ pub fn go_to_pose(
 
                     let step = k.signum();
                     for _ in 0..k.abs() {
+                        // Reserve both source and destination to prevent head-on conflicts
                         let prev = carrier_rect(c.bl, c.dir);
                         c.time += 1;
                         c.bl.x += dx * step;
@@ -419,6 +427,7 @@ pub fn go_to_pose(
                 Command::Face { t: _, dir } => {
                     let prev = carrier_rect(c.bl, c.dir);
 
+                    // Rotate around center point (using doubled coordinates)
                     c.time += 1;
                     let center2 = center2_from_bl(c.bl, c.dir);
                     c.dir = dir;
@@ -435,9 +444,11 @@ pub fn go_to_pose(
             }
         }
     } else {
+        // Fallback: retry with incremental wait times (10, 20, ..., 500 ticks)
+        // Speculative waits don't reserve to avoid self-blocking
         let mut waited_total = 0;
         for attempt in 0..50 {
-            let wait = (attempt + 1) * 10; // 10,20,...,500
+            let wait = (attempt + 1) * 10;
             c.time += wait;
             waited_total += wait;
 
