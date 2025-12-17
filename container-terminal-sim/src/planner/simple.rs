@@ -502,7 +502,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-<<<<<<< HEAD
     // After all demands complete, send each carrier back to its parking spot
     for (idx, carrier_def) in inst.carriers.iter().enumerate() {
         let c_id = carrier_def.id;
@@ -522,8 +521,6 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
     }
 
     // Produce plans in carrier order (and include all carriers)
-=======
->>>>>>> 805c06dc7ee37f9b3d470d176407b3838645ef7c
     inst.carriers
         .iter()
         .map(|c| (c.id, cmds_by_carrier.remove(&c.id).unwrap_or_default()))
