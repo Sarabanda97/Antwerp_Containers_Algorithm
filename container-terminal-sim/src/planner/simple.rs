@@ -381,8 +381,12 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
         }
     }
 
-    // NAIVE STRATEGY: Track global time to ensure only one carrier moves at a time
-    let mut max_carrier_time = global_time;
+    // NAIVE STRATEGY: Track per-crane time so only carriers on SAME crane wait for each other
+    // Carriers from different cranes can move in parallel since they're in separate sections
+    let mut max_carrier_time_per_crane: HashMap<Id, i32> = HashMap::new();
+    for crane in &inst.cranes {
+        max_carrier_time_per_crane.insert(crane.id, global_time);
+    }
 
     // Helper: score carrier for next demand
     let score_for = |carrier: &CarrierState, crane_id: Id, demand: &Demand, ready_t: i32| -> i32 {
@@ -438,8 +442,9 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                 let c_id = carriers[best_idx].id;
                 let cmds = cmds_by_carrier.get_mut(&c_id).unwrap();
 
-                // NAIVE STRATEGY: Make carrier wait until all others are done + big buffer
-                carriers[best_idx].time = carriers[best_idx].time.max(max_carrier_time + 200);
+                // NAIVE STRATEGY: Make carrier wait until other carriers on SAME crane are done + buffer
+                let max_time_this_crane = *max_carrier_time_per_crane.get(crane_id).unwrap_or(&0);
+                carriers[best_idx].time = carriers[best_idx].time.max(max_time_this_crane + 200);
 
                 let mut ctx = PlanningContext {
                     inst,
@@ -518,8 +523,8 @@ pub fn plan_all_demands_multi(inst: &Instance) -> Vec<(Id, Vec<Command>)> {
                 // Update crane time after operation
                 crane_time.insert(*crane_id, ctx.c.time);
                 
-                // NAIVE STRATEGY: Update global max time after carrier finishes
-                max_carrier_time = max_carrier_time.max(ctx.c.time);
+                // NAIVE STRATEGY: Update per-crane max time after carrier finishes
+                max_carrier_time_per_crane.insert(*crane_id, ctx.c.time);
             }
 
             ptr.insert(*crane_id, i + 1);
